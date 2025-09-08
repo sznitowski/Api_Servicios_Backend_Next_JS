@@ -1,39 +1,29 @@
-import { IsString, IsOptional, IsNumber, IsDateString, IsInt } from 'class-validator';
+// src/modules/request/dto/create-request.dto.ts
+import { IsNumber, IsOptional, IsString, MaxLength, Min, IsPositive } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateRequestDto {
-  // a qué tipo de servicio pertenece el pedido
-  @Type(() => Number)
-  @IsInt()
+  @Type(() => Number) @IsNumber() @IsPositive()
   serviceTypeId: number;
 
-  @IsString()
-  title: string;
+  @IsOptional() @IsString() @MaxLength(120)
+  title?: string;
 
-  @IsString()
-  description: string;
+  @IsOptional() @IsString() @MaxLength(2000)
+  description?: string;
 
-  @IsOptional()
-  @IsString()
+  @IsOptional() @IsString() @MaxLength(240)
   address?: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  lat?: number;
+  @Type(() => Number) @IsNumber()
+  lat: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  lng?: number;
+  @Type(() => Number) @IsNumber()
+  lng: number;
 
-  @IsOptional()
-  @IsDateString()
-  scheduledAt?: string;
-
-  // Oferta inicial del cliente (opcional). En la entidad se guarda como string (decimal)
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Type(() => Number) @IsOptional() @Min(0)
   priceOffered?: number;
+
+  @IsOptional() @IsString()
+  scheduledAt?: string;
 }

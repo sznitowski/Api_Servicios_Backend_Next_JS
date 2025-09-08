@@ -1,24 +1,23 @@
-import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+// src/modules/providers/dto/search-providers.dto.ts
+import { IsNumber, IsIn, IsOptional, Min, Max, IsPositive } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class SearchProvidersDto {
-  @IsInt()
+  @Type(() => Number) @IsNumber() @IsPositive()
   serviceTypeId: number;
 
-  @IsNumber()
-  lat: number;
+  @Type(() => Number) @IsNumber() lat: number;
+  @Type(() => Number) @IsNumber() lng: number;
 
-  @IsNumber()
-  lng: number;
+  @Type(() => Number) @IsNumber() @IsOptional() @Min(1) @Max(50)
+  limit?: number = 20;
 
-  @IsOptional() @IsNumber() @Min(0)
-  radiusKm?: number; // default 10
+  @Type(() => Number) @IsNumber() @IsOptional() @Min(1)
+  page?: number = 1;
 
-  @IsOptional() @IsInt() @Min(1)
-  page?: number; // default 1
-
-  @IsOptional() @IsInt() @Min(1)
-  limit?: number; // default 20
+  @Type(() => Number) @IsNumber() @IsOptional() @Min(1) @Max(50)
+  radiusKm?: number = 10;
 
   @IsOptional() @IsIn(['distance', 'rating', 'price'])
-  sort?: 'distance' | 'rating' | 'price'; // default distance
+  sort?: 'distance' | 'rating' | 'price' = 'distance';
 }

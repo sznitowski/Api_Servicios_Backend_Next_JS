@@ -28,11 +28,13 @@ import { MineSummaryDto } from './dto/mine-summary.dto';
 // Ratings
 import { CreateRatingDto } from '../ragings/dto/create-rating.dto';
 import { RatingsService } from '../ragings/ratings.service';
-
+import { CurrentUser } from '../../common/decorators/current-user';
+import type { JwtUser } from '../../common/decorators/current-user';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('requests')
 export class RequestsController {
+  requests: any;
   constructor(
     private readonly service: RequestsService,
     private readonly ratings: RatingsService,
@@ -124,12 +126,17 @@ export class RequestsController {
     return this.service.cancel(id, req.user.sub);
   }
 
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
   @Post(':id/admin-cancel')
-  adminCancel(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    return this.service.adminCancel(id, req.user.sub);
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async adminCancel(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.service.adminCancel(id, user.sub); // <- antes decía this.requests...
   }
+
+
 
   // -------- RATING (cliente califica al proveedor) --------
   @UseGuards(RolesGuard)

@@ -1,12 +1,10 @@
-import { IsInt, Min, Max, IsOptional, IsString } from 'class-validator';
+// src/modules/ratings/dto/create-rating.dto.ts
+import { IsInt, Min, Max, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateRatingDto {
-  @IsInt()
-  @Min(1)
-  @Max(5)
+  @IsInt() @Min(1) @Max(5)
   stars: number;
 
-  @IsOptional()
-  @IsString()
+  @IsOptional() @IsString() @MaxLength(800)
   comment?: string;
 }
