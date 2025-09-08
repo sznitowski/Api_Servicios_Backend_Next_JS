@@ -36,7 +36,7 @@ export class RequestsController {
   constructor(
     private readonly service: RequestsService,
     private readonly ratings: RatingsService,
-  ) {}
+  ) { }
 
   // -------- FEED (para proveedores) --------
   @Get('feed')
@@ -78,7 +78,8 @@ export class RequestsController {
   }
 
   @Get(':id/timeline')
-  timeline(@Param('id', ParseIntPipe) id: number) {
+  timeline(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    console.debug('[timeline] user=%s id=%s', req.user?.sub, id);
     return this.service.timeline(id);
   }
 

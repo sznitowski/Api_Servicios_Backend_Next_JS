@@ -11,7 +11,6 @@ import { Repository } from 'typeorm';
 import { ServiceRequest } from './request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { ListMyRequestsDto } from './dto/list-my.dto';
-import { RequestStatus } from './dto/mine.dto';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
 import { User } from '../users/user.entity';
 import { RequestTransition } from './request-transition.entity';
@@ -275,7 +274,7 @@ export class RequestsService {
     /** Historial (timeline) de un request */
     async timeline(requestId: number) {
         return this.trRepo.find({
-            where: { request: { id: requestId } },
+            where: { request: { id: requestId } as any },
             order: { createdAt: 'ASC' },
             relations: { actor: true },
             select: {
@@ -291,12 +290,23 @@ export class RequestsService {
         });
     }
 
-    async adminCancel(id: number, actorId: number) {
+    /** ⬅️ CAMBIO: Admin cancela y se registra la transición en el timeline */
+    async adminCancel(id: number, adminUserId: number) {
         const r = await this.get(id);
+        const from: Status = r.status;
         r.status = 'CANCELLED';
-        return this.repo.save(r);
-    }
+        const saved = await this.repo.save(r);
 
+        await this.logTransition({
+            request: saved,
+            actorId: adminUserId,   // <- admin que ejecutó la acción
+            from,
+            to: saved.status,
+            notes: 'Admin cancel',
+        });
+
+        return saved;
+    }
 
     async listMine(userId: number, q: ListMyRequestsDto) {
         const page = q.page ?? 1;
@@ -308,7 +318,6 @@ export class RequestsService {
             .leftJoinAndSelect('r.serviceType', 'serviceType');
 
         if ((q.as ?? 'client') === 'provider') {
-            // si tus columnas FK se llaman r.providerId/r.clientId, podés usar esas:
             qb.where('r.providerId = :uid', { uid: userId });
             // alternativa por relación:
             // qb.where('provider.id = :uid', { uid: userId });
@@ -337,9 +346,9 @@ export class RequestsService {
     }: {
         userId: number;
         as: 'client' | 'provider';
-        status?: Status;        // usa el alias Status del propio servicio
-        page?: number;          // ahora opcionales con default
-        limit?: number;         // ahora opcionales con default
+        status?: Status;
+        page?: number;
+        limit?: number;
     }) {
         const qb = this.repo
             .createQueryBuilder('r')
@@ -413,7 +422,4 @@ export class RequestsService {
 
         return { ...counts, total };
     }
-
 }
-
-
