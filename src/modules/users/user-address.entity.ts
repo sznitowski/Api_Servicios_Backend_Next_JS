@@ -14,7 +14,8 @@ export class UserAddress {
   @Index()
   user: User;
 
-  @Column({ length: 64, nullable: true })
+  // ⬇️ Tipo explícito para evitar "Object"
+  @Column({ type: 'varchar', length: 64, nullable: true })
   label?: string | null; // p.ej. Casa, Trabajo
 
   @Column({ type: 'text' })

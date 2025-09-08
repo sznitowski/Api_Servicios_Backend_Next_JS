@@ -1,14 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // CORS (optional, but handy for frontend later)
+  // CORS (útil para el front)
   app.enableCors({ origin: true, credentials: true });
 
-  // Global validation
+  // Validación global
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -18,9 +19,18 @@ async function bootstrap() {
     }),
   );
 
-  // Optional: API prefix & versioning
-  // app.setGlobalPrefix('api');
-  // app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+  // Swagger (después de crear app)
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Servicios API')
+    .setDescription('API para auth, users, providers, catalog, requests')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('docs', app, document, {
+    swaggerOptions: { persistAuthorization: true },
+  });
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);

@@ -20,15 +20,25 @@ export class User {
   @Column({ select: false })
   password: string;
 
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.CLIENT })
-  role: UserRole;
+  @Column({
+    name: 'refresh_token_hash',
+    type: 'varchar',       // 👈 tipo explícito para MySQL
+    length: 255,
+    nullable: true,
+    select: false,
+  })
+  refreshTokenHash: string | null;   // el runtime puede ser null; al tener type:'varchar' TypeORM no usa el "design:type"
 
-  @Column({ default: true })
-  active: boolean;
 
-  @CreateDateColumn()
-  createdAt: Date;
+@Column({ type: 'enum', enum: UserRole, default: UserRole.CLIENT })
+role: UserRole;
 
-  @UpdateDateColumn()
-  updatedAt: Date;
+@Column({ default: true })
+active: boolean;
+
+@CreateDateColumn()
+createdAt: Date;
+
+@UpdateDateColumn()
+updatedAt: Date;
 }

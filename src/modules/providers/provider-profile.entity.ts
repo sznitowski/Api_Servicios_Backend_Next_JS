@@ -13,25 +13,26 @@ export class ProviderProfile {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ length: 120, nullable: true })
-  displayName?: string | null;
+  // 👇 TIPOS EXPLÍCITOS
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  displayName: string | null;
 
-  @Column({ length: 32, nullable: true })
-  phone?: string | null;
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  phone: string | null;
 
-  @Column({ length: 512, nullable: true })
-  photoUrl?: string | null;
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  photoUrl: string | null;
 
   @Column({ type: 'text', nullable: true })
-  bio?: string | null;
+  bio: string | null;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
-  ratingAvg: string; // devuelve string desde MySQL
+  ratingAvg: string; // MySQL devuelve decimal como string
 
   @Column({ type: 'int', default: 0 })
   ratingCount: number;
 
-  @Column({ default: false })
+  @Column({ type: 'tinyint', width: 1, default: false })
   verified: boolean;
 
   @CreateDateColumn()
