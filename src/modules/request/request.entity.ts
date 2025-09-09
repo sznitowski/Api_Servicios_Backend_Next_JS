@@ -34,7 +34,7 @@ export class ServiceRequest {
   @JoinColumn({ name: 'service_type_id' })
   serviceType: ServiceType;
 
-  @Column({ type: 'enum', enum: ['PENDING','OFFERED','ACCEPTED','IN_PROGRESS','DONE','CANCELLED'], default: 'PENDING' })
+  @Column({  type: 'simple-enum', enum: ['PENDING','OFFERED','ACCEPTED','IN_PROGRESS','DONE','CANCELLED'], default: 'PENDING' })
   status: RequestStatus;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

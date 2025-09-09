@@ -22,23 +22,23 @@ export class User {
 
   @Column({
     name: 'refresh_token_hash',
-    type: 'varchar',       // 👈 tipo explícito para MySQL
+    type: 'varchar',
     length: 255,
     nullable: true,
     select: false,
   })
-  refreshTokenHash: string | null;   // el runtime puede ser null; al tener type:'varchar' TypeORM no usa el "design:type"
+  refreshTokenHash: string | null;
 
 
-@Column({ type: 'enum', enum: UserRole, default: UserRole.CLIENT })
-role: UserRole;
+  @Column({ type: 'simple-enum', enum: UserRole, default: UserRole.CLIENT })
+  role: UserRole;
 
-@Column({ default: true })
-active: boolean;
+  @Column({ default: true })
+  active: boolean;
 
-@CreateDateColumn()
-createdAt: Date;
+  @CreateDateColumn()
+  createdAt: Date;
 
-@UpdateDateColumn()
-updatedAt: Date;
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
