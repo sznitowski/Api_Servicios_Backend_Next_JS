@@ -1,9 +1,9 @@
 module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  testMatch: ['**/test/**/*.e2e-spec.ts'],
-  moduleFileExtensions: ['ts', 'js', 'json'],
+  moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
-  detectOpenHandles: true,
-  maxWorkers: 1,
+  testRegex: '.e2e-spec.ts$',
+  transform: { '^.+\\.(t|j)s$': 'ts-jest' },
+  testEnvironment: 'node',
+  setupFiles: [], 
+  forceExit: true, 
 };

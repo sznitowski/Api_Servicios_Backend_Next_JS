@@ -1,5 +1,5 @@
 // auth.controller.ts
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, HttpCode} from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -23,8 +23,9 @@ class RefreshDto {
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService, private readonly users: UsersService) {}
+  constructor(private readonly auth: AuthService, private readonly users: UsersService) { }
 
+  @HttpCode(200) 
   @Post('login')
   login(@Body() body: LoginDto) {
     return this.auth.login(body.email, body.password);
