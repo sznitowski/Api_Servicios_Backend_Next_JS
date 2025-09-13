@@ -1,11 +1,12 @@
+
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
-  "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
-  "transform": {
-    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "tsconfig.json" }]
-  },
-  "setupFiles": ["dotenv/config"],
+  "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+  "testEnvironment": "node",
+  "setupFilesAfterEnv": ["<rootDir>/test/setup-e2e.ts"],
+  "runInBand": true,
+  "maxWorkers": 1,
   "verbose": true
 }

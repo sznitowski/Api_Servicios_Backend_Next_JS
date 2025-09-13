@@ -1,45 +1,32 @@
-// test/app.e2e-spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import request from 'supertest';
+import { Test as NestTest } from '@nestjs/testing';
+import request, { SuperTest, Test as ST } from 'supertest';
 import { DataSource } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
 
 import { AppTestingModule } from '../src/app.testing.module';
-import { User, UserRole } from '../src/modules/users/user.entity';
 
 describe('E2E smoke', () => {
   let app: INestApplication;
+  let http: SuperTest<ST>;
   let ds: DataSource;
 
   beforeAll(async () => {
-    process.env.NODE_ENV = 'test';
-    process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-secret';
-
-    const moduleRef = await Test.createTestingModule({
+    const mod = await NestTest.createTestingModule({
       imports: [AppTestingModule],
     }).compile();
 
-    app = moduleRef.createNestApplication();
+    app = mod.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
+    http = request(app.getHttpServer());      // <- acá se define http
     ds = app.get(DataSource);
-
-    // Seed mínimo: usuario cliente
-    const userRepo = ds.getRepository(User);
-    const exists = await userRepo.findOne({ where: { email: 'test@demo.com' } });
-    if (!exists) {
-      const u = userRepo.create({
-        email: 'test@demo.com',
-        name: 'Test',
-        password: await bcrypt.hash('123456', 10),
-        role: UserRole.CLIENT,
-        active: true,
-      });
-      await userRepo.save(u);
-    }
   }, 30000);
+
+  afterAll(async () => {
+    await app?.close();
+    if (ds?.isInitialized) await ds.destroy();
+  });
 
   afterAll(async () => {
     await app?.close();
@@ -49,10 +36,10 @@ describe('E2E smoke', () => {
   });
 
   it('/auth/login (POST) works', async () => {
-    const res = await request(app.getHttpServer())
+    const res = await http
       .post('/auth/login')
-      .send({ email: 'test@demo.com', password: '123456' })
-      .expect(200); // tu controller devuelve 200
+      .send({ email: 'prov@demo.com', password: '123456' }) // con “v”
+      .expect(200);
 
     expect(res.body.access_token).toBeDefined();
   }, 15000);

@@ -4,6 +4,7 @@ import {
     BadRequestException,
     ForbiddenException,
     NotFoundException,
+    ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -179,10 +180,22 @@ export class RequestsService {
 
     async claim(id: number, providerId: number, priceOffered?: number) {
         const r = await this.get(id);
-        if (r.status !== 'PENDING') throw new BadRequestException('Only PENDING can be claimed');
+
+        // si ya no está PENDING -> conflicto
+        if (r.status !== 'PENDING') {
+            throw new ConflictException('Request is not open to claim');
+        }
 
         const provider = await this.userRepo.findOne({ where: { id: providerId } });
         if (!provider) throw new NotFoundException('Provider not found');
+
+        // por sanidad: si alguien ya lo tomó (por relación/estado futuro)
+        if (r.provider && r.provider.id !== providerId) {
+            throw new ConflictException('Already claimed by another provider');
+        }
+        if (r.provider && r.provider.id === providerId) {
+            throw new ConflictException('Already claimed by you');
+        }
 
         const from: Status = r.status;
         r.provider = provider;
@@ -201,6 +214,7 @@ export class RequestsService {
 
         return saved;
     }
+
 
     async accept(id: number, clientId: number, priceAgreed?: number) {
         const r = await this.get(id);

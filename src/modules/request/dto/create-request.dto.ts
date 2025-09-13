@@ -1,29 +1,48 @@
 // src/modules/request/dto/create-request.dto.ts
-import { IsNumber, IsOptional, IsString, MaxLength, Min, IsPositive } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateRequestDto {
-  @Type(() => Number) @IsNumber() @IsPositive()
+  @IsInt()
   serviceTypeId: number;
 
-  @IsOptional() @IsString() @MaxLength(120)
-  title?: string;
+  @IsString()
+  @IsNotEmpty()
+  title: string;
 
-  @IsOptional() @IsString() @MaxLength(2000)
+  @IsOptional()
+  @IsString()
   description?: string;
 
-  @IsOptional() @IsString() @MaxLength(240)
+  @IsOptional()
+  @IsString()
   address?: string;
 
-  @Type(() => Number) @IsNumber()
+  // lat en [-90, 90]
+  @IsNumber({ maxDecimalPlaces: 8 })
+  @Min(-90)
+  @Max(90)
   lat: number;
 
-  @Type(() => Number) @IsNumber()
+  // lng en [-180, 180]
+  @IsNumber({ maxDecimalPlaces: 8 })
+  @Min(-180)
+  @Max(180)
   lng: number;
 
-  @Type(() => Number) @IsOptional() @Min(0)
-  priceOffered?: number;
-
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsDateString()
   scheduledAt?: string;
+
+  @IsInt()
+  @Min(1)
+  priceOffered: number;
 }
