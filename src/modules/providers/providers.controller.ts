@@ -43,7 +43,7 @@ export class ProvidersController {
   constructor(
     private readonly service: ProvidersService,
     private readonly ratings: RatingsService,
-  ) {}
+  ) { }
 
   /** Obtiene el userId desde el token (id o sub, según tu estrategia JWT). */
   private uid(req: any): number {
@@ -113,6 +113,7 @@ export class ProvidersController {
 
   // ---------- Búsqueda (ruta fija, va ANTES de cualquier :id) ----------
   @ApiOperation({ summary: 'Buscar proveedores por tipo y radio' })
+  @ApiOkResponse({ description: 'Listado paginado con distancia y precio base' })
   @ApiQuery({ name: 'serviceTypeId', required: true, type: Number })
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
