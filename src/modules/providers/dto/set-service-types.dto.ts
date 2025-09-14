@@ -1,19 +1,26 @@
+// src/modules/providers/dto/set-service-types.dto.ts
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsBoolean, IsNumber, IsOptional, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNumber, IsOptional, Min, ValidateNested } from 'class-validator';
 
 export class ServiceTypeItemDto {
-  @IsNumber()
-  serviceTypeId!: number;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  serviceTypeId: number;
 
-  @IsOptional() @IsNumber() @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   basePrice?: number;
 
-  @IsOptional() @IsBoolean()
+  @IsOptional()
+  @IsBoolean()
   active?: boolean;
 }
 
 export class SetServiceTypesDto {
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true })
+  @IsArray()
+  @ValidateNested({ each: true })
   @Type(() => ServiceTypeItemDto)
-  items!: ServiceTypeItemDto[];
+  items: ServiceTypeItemDto[];
 }

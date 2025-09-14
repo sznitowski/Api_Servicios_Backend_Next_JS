@@ -1,23 +1,79 @@
-import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
-import { Transform } from 'class-transformer';
+// src/modules/users/dto/create-address.dto.ts
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  Max,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateAddressDto {
-  @IsOptional() @IsString() @MaxLength(64)
+  @ApiPropertyOptional({
+    description: 'Etiqueta corta para identificar la dirección (ej: Casa, Trabajo)',
+    example: 'Casa',
+    maxLength: 60,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
   label?: string;
 
+  @ApiProperty({
+    description: 'Dirección en una sola línea',
+    example: 'Av. Siempre Viva 742, Piso 3, Depto B',
+    maxLength: 200,
+  })
   @IsString()
+  @MaxLength(200)
   address!: string;
 
-  @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @ApiProperty({
+    description: 'Latitud en grados decimales',
+    example: -34.6037,
+    minimum: -90,
+    maximum: 90,
+    type: Number,
+  })
+  @Type(() => Number)
   @IsNumber()
-  lat?: number;
+  @Min(-90)
+  @Max(90)
+  lat!: number;
 
-  @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @ApiProperty({
+    description: 'Longitud en grados decimales',
+    example: -58.3816,
+    minimum: -180,
+    maximum: 180,
+    type: Number,
+  })
+  @Type(() => Number)
   @IsNumber()
-  lng?: number;
+  @Min(-180)
+  @Max(180)
+  lng!: number;
 
-  @IsOptional() @IsBoolean()
+  @ApiPropertyOptional({
+    description: 'Notas o referencias adicionales',
+    example: 'Timbre roto',
+    maxLength: 200,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Marcar como dirección principal',
+    example: true,
+    type: Boolean,
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
   isDefault?: boolean;
 }

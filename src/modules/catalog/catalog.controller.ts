@@ -5,6 +5,14 @@ import { Category } from './categories/category.entity';
 import { ServiceType } from './service-types/service-type.entity';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiOkResponse,
+  ApiUnauthorizedResponse,
+  ApiQuery,
+} from '@nestjs/swagger';
 
 class ServiceTypesQueryDto {
   @IsOptional() @Type(() => Number) @IsInt()
@@ -14,6 +22,8 @@ class ServiceTypesQueryDto {
   q?: string;
 }
 
+@ApiTags('catalog')
+@ApiBearerAuth() // ⬅️ si es público, quitá esta línea
 @Controller('catalog')
 export class CatalogController {
   constructor(
@@ -22,6 +32,24 @@ export class CatalogController {
   ) {}
 
   // GET /catalog/categories -> categorías con sus service types (activos)
+  @ApiOperation({
+    summary: 'Listar categorías',
+    description: 'Devuelve categorías activas con sus service types activos.',
+  })
+  @ApiOkResponse({
+    description: 'OK',
+    schema: {
+      example: [
+        {
+          id: 1,
+          name: 'General',
+          description: null,
+          serviceTypes: [{ id: 1, name: 'Mudanza' }, { id: 2, name: 'Plomería' }],
+        },
+      ],
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'No autenticado.' }) // ⬅️ quitá si es público
   @Get('categories')
   async categories() {
     const categories = await this.cats.find({
@@ -42,7 +70,7 @@ export class CatalogController {
       map.get(cid)!.push({ id: t.id, name: t.name });
     }
 
-    return categories.map(c => ({
+    return categories.map((c) => ({
       id: c.id,
       name: c.name,
       description: (c as any).description ?? null,
@@ -51,6 +79,33 @@ export class CatalogController {
   }
 
   // GET /catalog/service-types?categoryId=&q=
+  @ApiOperation({
+    summary: 'Listar tipos de servicio',
+    description: 'Lista de service types activos. Permite filtrar por categoría y por texto.',
+  })
+  @ApiQuery({
+    name: 'categoryId',
+    required: false,
+    type: Number,
+    description: 'Filtra por categoría (id).',
+  })
+  @ApiQuery({
+    name: 'q',
+    required: false,
+    type: String,
+    description: 'Búsqueda por nombre (ILIKE %q%).',
+    maxLength: 50,
+  })
+  @ApiOkResponse({
+    description: 'OK',
+    schema: {
+      example: [
+        { id: 1, name: 'Mudanza', active: true, category: { id: 1, name: 'General' } },
+        { id: 3, name: 'Plomería', active: true, category: { id: 2, name: 'Hogar' } },
+      ],
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'No autenticado.' }) // ⬅️ quitá si es público
   @Get('service-types')
   async serviceTypes(@Query() q: ServiceTypesQueryDto) {
     const where: any = { active: true };

@@ -1,3 +1,4 @@
+// src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -21,7 +22,7 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger (después de crear app)
+  // ---- Swagger: config + document (siempre generamos el document) ----
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Servicios API')
     .setDescription('API para auth, users, providers, catalog, requests')
@@ -30,9 +31,24 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+
+  // UI sólo fuera de producción
+  if (process.env.NODE_ENV !== 'production') {
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+    console.log('📚 Swagger listo en http://localhost:3000/docs');
+  }
+
+  // Exportar OpenAPI a archivo si se solicita
+  if (process.env.GENERATE_OPENAPI === 'true') {
+    const { writeFileSync, mkdirSync } = await import('fs');
+    const { join } = await import('path');
+    const outDir = join(process.cwd(), 'docs');
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, 'openapi.json'), JSON.stringify(document, null, 2));
+    console.log('📝 OpenAPI exportado a docs/openapi.json');
+  }
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);

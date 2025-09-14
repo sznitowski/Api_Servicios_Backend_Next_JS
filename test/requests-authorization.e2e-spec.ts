@@ -43,7 +43,7 @@ describe('AuthZ / Roles (e2e)', () => {
   it('provider NO puede accept', async () => {
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
@@ -60,7 +60,7 @@ describe('AuthZ / Roles (e2e)', () => {
   it('cliente NO puede claim/start/complete', async () => {
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 

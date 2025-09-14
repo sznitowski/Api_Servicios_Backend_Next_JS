@@ -1,23 +1,48 @@
 // src/modules/providers/dto/search-providers.dto.ts
-import { IsNumber, IsIn, IsOptional, Min, Max, IsPositive } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
 
 export class SearchProvidersDto {
-  @Type(() => Number) @IsNumber() @IsPositive()
-  serviceTypeId: number;
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  serviceTypeId!: number;
 
-  @Type(() => Number) @IsNumber() lat: number;
-  @Type(() => Number) @IsNumber() lng: number;
+  @ApiProperty({ example: -34.6 })
+  @Type(() => Number)
+  @IsNumber()
+  lat!: number;
 
-  @Type(() => Number) @IsNumber() @IsOptional() @Min(1) @Max(50)
-  limit?: number = 20;
+  @ApiProperty({ example: -58.4 })
+  @Type(() => Number)
+  @IsNumber()
+  lng!: number;
 
-  @Type(() => Number) @IsNumber() @IsOptional() @Min(1)
-  page?: number = 1;
+  @ApiPropertyOptional({ example: 10 })
+  @Type(() => Number)
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  radiusKm?: number;
 
-  @Type(() => Number) @IsNumber() @IsOptional() @Min(1) @Max(50)
-  radiusKm?: number = 10;
+  @ApiPropertyOptional({ enum: ['distance', 'rating', 'price'], example: 'distance' })
+  @IsOptional()
+  @IsIn(['distance', 'rating', 'price'])
+  sort?: 'distance' | 'rating' | 'price';
 
-  @IsOptional() @IsIn(['distance', 'rating', 'price'])
-  sort?: 'distance' | 'rating' | 'price' = 'distance';
+  @ApiPropertyOptional({ example: 1 })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 10 })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  limit?: number;
 }

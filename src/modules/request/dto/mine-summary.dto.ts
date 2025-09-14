@@ -1,7 +1,9 @@
-// src/modules/request/dto/mine-summary.dto.ts
-import { IsIn } from 'class-validator';
+import { IsIn, IsOptional } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class MineSummaryDto {
+  @ApiPropertyOptional({ description: 'Vista', enum: ['client', 'provider'], example: 'client' })
+  @IsOptional()
   @IsIn(['client', 'provider'])
-  as!: 'client' | 'provider';
+  as?: 'client' | 'provider';
 }

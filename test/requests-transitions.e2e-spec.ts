@@ -43,7 +43,7 @@ describe('Transiciones de Request (e2e)', () => {
   it('start sin accept → 400/409', async () => {
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
@@ -60,7 +60,7 @@ describe('Transiciones de Request (e2e)', () => {
   it('complete sin start → 400/409', async () => {
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
@@ -78,7 +78,7 @@ describe('Transiciones de Request (e2e)', () => {
   it('rate doble → 400/409', async () => {
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
@@ -115,7 +115,7 @@ describe('Transiciones de Request (e2e)', () => {
 
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 

@@ -60,7 +60,7 @@ describe('Validación de inputs (e2e)', () => {
   it('lat/lng inválidos → 400', async () => {
     await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: -999, lng: 999, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: -999, lng: 999, priceOffered: 1 })
       .expect(res => {
         if (res.status !== 400) throw new Error(`Debió fallar con 400, fue ${res.status}`);
       });
@@ -70,7 +70,7 @@ describe('Validación de inputs (e2e)', () => {
     // crear request válido
     const create = await http.post('/requests')
       .set(H(hcli))
-      .send({ serviceTypeId, title: 'x', lat: 0, lng: 0, priceOffered: 1 })
+      .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
 
     const rid = create.body?.id ?? create.body?.data?.id;
