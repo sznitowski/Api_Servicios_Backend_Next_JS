@@ -9,6 +9,7 @@ import {
   Param,
   ParseIntPipe,
   Query,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
@@ -68,29 +69,40 @@ export class RequestsController {
     );
   }
 
-  // ---------- OPEN (paginado) ----------
-  @ApiOperation({ summary: 'Pedidos abiertos cerca con paginación (PROVIDER)' })
-  @ApiOkResponse({ description: 'Listado paginado con distancia' })
-  @ApiQuery({ name: 'lat', type: Number, required: true })
-  @ApiQuery({ name: 'lng', type: Number, required: true })
-  @ApiQuery({ name: 'radiusKm', type: Number, required: false, example: 10 })
-  @ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
-  @ApiQuery({ name: 'limit', type: Number, required: false, example: 20 })
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
-  @Get('open')
-  open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
-    return this.service.open(
-      {
-        lat: q.lat,
-        lng: q.lng,
-        radiusKm: q.radiusKm ?? 10,
-        page: q.page ?? 1,
-        limit: q.limit ?? 20,
-      },
-      this.uid(req)
-    );
+// ---------- OPEN (paginado) ----------
+@ApiOperation({ summary: 'Pedidos abiertos cerca con paginación (PROVIDER)' })
+@ApiOkResponse({ description: 'Listado paginado con distancia' })
+@ApiQuery({ name: 'lat', type: Number, required: true })
+@ApiQuery({ name: 'lng', type: Number, required: true })
+@ApiQuery({ name: 'radiusKm', type: Number, required: false, example: 10 })
+@ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
+@ApiQuery({ name: 'limit', type: Number, required: false, example: 20 })
+@ApiQuery({ name: 'serviceTypeId', type: Number, required: false })
+@ApiQuery({ name: 'sort', required: false, enum: ['distance', 'createdAt'], example: 'distance' })
+@UseGuards(RolesGuard)
+@Roles(UserRole.PROVIDER, UserRole.ADMIN)
+@Get('open')
+open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
+  // Validación mínima
+  if (q.lat == null || q.lng == null) {
+    throw new BadRequestException('lat y lng son requeridos');
   }
+
+  return this.service.open(
+    {
+      lat: Number(q.lat),
+      lng: Number(q.lng),
+      radiusKm: q.radiusKm ?? 10,
+      page: Math.max(1, Number(q.page ?? 1)),
+      limit: Math.max(1, Math.min(Number(q.limit ?? 20), 50)),
+      serviceTypeId: q.serviceTypeId != null ? Number(q.serviceTypeId) : undefined,
+      sort: q.sort, // 'distance' | 'createdAt'
+    },
+    this.uid(req),
+  );
+}
+
+  
 
   // ---------- CREATE ----------
   @ApiOperation({ summary: 'Crear un request' })
