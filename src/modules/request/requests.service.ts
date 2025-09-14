@@ -15,7 +15,6 @@ import { ListMyRequestsDto } from './dto/list-my.dto';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
 import { User } from '../users/user.entity';
 import { RequestTransition } from './request-transition.entity';
-// FIX: ruta correcta del DTO de listados
 import { ListRequestsQueryDto } from './dto/list-requests.query.dto';
 
 type Status =
@@ -40,7 +39,7 @@ export class RequestsService {
 
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   /** -------------------- FEED PARA PROVEEDORES -------------------- */
   async feed(
@@ -67,30 +66,29 @@ export class RequestsService {
       .addSelect(haversine, 'distance')
       .where('r.status = :pending', { pending: 'PENDING' })
 
+      // No mostrar mis propios pedidos
+      .andWhere('client.id <> :self', { self: providerId })
+
       // Tipos que ofrece el proveedor (activos)
       .andWhere(
-        `
-        EXISTS (
+        `EXISTS (
           SELECT 1
           FROM provider_service_types pst
           WHERE pst.provider_id = :pid
             AND pst.service_type_id = r.service_type_id
             AND pst.active = 1
-        )
-      `,
+        )`,
         { pid: providerId },
       )
 
       // Aún no interactuó con ese request
       .andWhere(
-        `
-        NOT EXISTS (
+        `NOT EXISTS (
           SELECT 1
           FROM request_transitions rt
           WHERE rt.request_id = r.id
             AND rt.actor_user_id = :pid2
-        )
-      `,
+        )`,
         { pid2: providerId },
       )
 
@@ -150,8 +148,6 @@ export class RequestsService {
     });
 
     const saved = await this.repo.save(r);
-    // (opcional) asiento inicial PENDING->PENDING
-    // await this.logTransition({ request: saved, from: 'PENDING', to: 'PENDING', actorId: clientId, priceOffered: saved.priceOffered });
     return saved;
   }
 
@@ -183,7 +179,9 @@ export class RequestsService {
   async claim(id: number, providerId: number, priceOffered?: number) {
     const r = await this.get(id);
 
-    // si ya no está PENDING -> conflicto
+    if (r.client.id === providerId) {
+      throw new ForbiddenException('Cannot claim your own request');
+    }
     if (r.status !== 'PENDING') {
       throw new ConflictException('Request is not open to claim');
     }
@@ -191,7 +189,6 @@ export class RequestsService {
     const provider = await this.userRepo.findOne({ where: { id: providerId } });
     if (!provider) throw new NotFoundException('Provider not found');
 
-    // por sanidad: si alguien ya lo tomó (por relación/estado futuro)
     if (r.provider && r.provider.id !== providerId) {
       throw new ConflictException('Already claimed by another provider');
     }
@@ -271,7 +268,6 @@ export class RequestsService {
 
   async cancel(id: number, actorId: number) {
     const r = await this.get(id);
-
     const isActor = r.client.id === actorId || r.provider?.id === actorId;
     if (!isActor) throw new ForbiddenException('Not allowed');
     if (r.status === 'DONE') throw new BadRequestException('Cannot cancel DONE');
@@ -305,7 +301,7 @@ export class RequestsService {
     });
   }
 
-  /** ⬅️ CAMBIO: Admin cancela y se registra la transición en el timeline */
+  /** Admin cancela y se registra en timeline */
   async adminCancel(id: number, adminUserId: number) {
     const r = await this.get(id);
     const from: Status = r.status;
@@ -314,7 +310,7 @@ export class RequestsService {
 
     await this.logTransition({
       request: saved,
-      actorId: adminUserId, // <- admin que ejecutó la acción
+      actorId: adminUserId,
       from,
       to: saved.status,
       notes: 'Admin cancel',
@@ -344,6 +340,88 @@ export class RequestsService {
     return {
       items: rows,
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  /** Pedidos abiertos cerca (paginado) */
+  async open(
+    q: {
+      lat: number;
+      lng: number;
+      radiusKm?: number;
+      page?: number;
+      limit?: number;
+      serviceTypeId?: number;
+      sort?: 'distance' | 'createdAt';
+    },
+    providerId: number,
+  ) {
+    const lat = Number(q.lat);
+    const lng = Number(q.lng);
+    const radiusKm = q.radiusKm ?? 10;
+    const page = Math.max(1, q.page ?? 1);
+    const limit = Math.max(1, Math.min(q.limit ?? 20, 50));
+
+    const haversine = `
+      6371 * 2 * ASIN(
+        SQRT(
+          POWER(SIN(RADIANS((r.lat - :lat) / 2)), 2) +
+          COS(RADIANS(:lat)) * COS(RADIANS(r.lat)) *
+          POWER(SIN(RADIANS((r.lng - :lng) / 2)), 2)
+        )
+      )
+    `;
+
+    const qb = this.repo
+      .createQueryBuilder('r')
+      .leftJoinAndSelect('r.client', 'client')
+      .leftJoinAndSelect('r.serviceType', 'st')
+      .addSelect(haversine, 'distance')
+      .where('r.status = :pending', { pending: 'PENDING' })
+      .andWhere('client.id <> :self', { self: providerId })
+      .andWhere(
+        `EXISTS (
+           SELECT 1
+           FROM provider_service_types pst
+           WHERE pst.provider_id = :pid
+             AND pst.service_type_id = r.service_type_id
+             AND pst.active = 1
+         )`,
+        { pid: providerId },
+      )
+      .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm });
+
+    if (q.serviceTypeId) {
+      qb.andWhere('st.id = :stId', { stId: q.serviceTypeId });
+    }
+
+    if (q.sort === 'createdAt') {
+      qb.orderBy('r.createdAt', 'DESC').addOrderBy('distance', 'ASC');
+    } else {
+      qb.orderBy('distance', 'ASC').addOrderBy('r.createdAt', 'DESC');
+    }
+
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [rawAndEntities, total] = await Promise.all([
+      qb.getRawAndEntities(),
+      qb.getCount(),
+    ]);
+
+    const { entities, raw } = rawAndEntities;
+    const items = entities.map((e, i) => ({
+      ...e,
+      distanceKm: Number(raw[i].distance),
+    }));
+
+    return {
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / Math.max(limit, 1))),
+      },
     };
   }
 
@@ -382,12 +460,8 @@ export class RequestsService {
 
     if ((q.as ?? 'client') === 'provider') {
       qb.where('r.providerId = :uid', { uid: userId });
-      // alternativa por relación:
-      // qb.where('provider.id = :uid', { uid: userId });
     } else {
       qb.where('r.clientId = :uid', { uid: userId });
-      // alternativa:
-      // qb.where('client.id = :uid', { uid: userId });
     }
 
     if (q.status) qb.andWhere('r.status = :st', { st: q.status });
@@ -453,7 +527,6 @@ export class RequestsService {
     userId: number;
     as: 'client' | 'provider';
   }) {
-    // armamos el query agrupado por estado
     const qb = this.repo
       .createQueryBuilder('r')
       .select('r.status', 'status')
@@ -469,7 +542,6 @@ export class RequestsService {
 
     const rows = await qb.groupBy('r.status').getRawMany<{ status: Status; count: string }>();
 
-    // normalizamos todos los estados conocidos a 0 si no vienen
     const counts: Record<Status, number> = {
       PENDING: 0,
       OFFERED: 0,
@@ -480,7 +552,6 @@ export class RequestsService {
     };
 
     for (const r of rows) counts[r.status] = Number(r.count);
-
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
     return { ...counts, total };

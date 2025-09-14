@@ -1,6 +1,7 @@
+// src/modules/providers/provider-service-type.entity.ts
 import {
-  Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn, Column,
-  Unique
+  Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn,
+  Column, CreateDateColumn, UpdateDateColumn, Unique
 } from 'typeorm';
 import { ProviderProfile } from './provider-profile.entity';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
@@ -9,19 +10,27 @@ import { ServiceType } from '../catalog/service-types/service-type.entity';
 @Unique(['provider', 'serviceType'])
 export class ProviderServiceType {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
+  // 🔹 Relación correcta: ProviderProfile (no User)
   @ManyToOne(() => ProviderProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'provider_id' })
-  provider: ProviderProfile;
+  provider!: ProviderProfile;
 
-  @ManyToOne(() => ServiceType, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => ServiceType, { eager: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'service_type_id' })
-  serviceType: ServiceType;
+  serviceType!: ServiceType;
 
+  // 🔹 Campo que usa tu service
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  basePrice?: string | null;
+  basePrice!: string | null;
 
-  @Column({ default: true })
-  active: boolean;
+  @Column({ type: 'tinyint', width: 1, default: true })
+  active!: boolean;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
 }

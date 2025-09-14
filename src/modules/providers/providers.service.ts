@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, DeepPartial } from 'typeorm';
 
 import { ProviderProfile } from './provider-profile.entity';
 import { ProviderServiceType } from './provider-service-type.entity';
@@ -28,12 +28,12 @@ export class ProvidersService {
     private readonly stRepo: Repository<ServiceType>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
-  /** Asegura que exista el perfil del proveedor para el userId. */
+  /** Crea (si no existe) y devuelve el perfil del proveedor para un userId. */
   private async getOrCreateProfile(userId: number) {
     let profile = await this.profileRepo.findOne({
-      where: { user: { id: userId } },
+      where: { user: { id: userId } as any },
       relations: { user: true },
     });
 
@@ -43,7 +43,6 @@ export class ProvidersService {
 
       profile = this.profileRepo.create({
         user,
-        // defaults seguros
         verified: false,
         ratingAvg: '0',
         ratingCount: 0,
@@ -51,15 +50,10 @@ export class ProvidersService {
         phone: '',
         photoUrl: null,
         bio: '',
-        // si tu entidad tiene estos campos, podés setearlos:
-        // lat: 0,
-        // lng: 0,
-        // radiusKm: 0,
-        // active: true,
       } as Partial<ProviderProfile>);
 
       profile = await this.profileRepo.save(profile);
-      // vuelve a leer con relaciones normalizadas
+
       profile = await this.profileRepo.findOne({
         where: { id: profile.id },
         relations: { user: true },
@@ -69,6 +63,7 @@ export class ProvidersService {
     return profile!;
   }
 
+  // -------- Perfil propio --------
   async getMyProfile(userId: number) {
     const p = await this.getOrCreateProfile(userId);
     return {
@@ -82,21 +77,16 @@ export class ProvidersService {
     };
   }
 
-  /**
-   * Idempotente: si existe, actualiza; si no existe, lo crea.
-   * Mergea sólo campos definidos para no pisar con undefined.
-   */
   async updateMyProfile(userId: number, dto: UpdateProviderProfileDto) {
     const profile = await this.getOrCreateProfile(userId);
 
-    // construir patch SOLO con campos que existen en tu DTO actual
     const patch: Partial<ProviderProfile> = {};
     if (dto.displayName !== undefined) patch.displayName = dto.displayName;
     if (dto.phone !== undefined) patch.phone = dto.phone;
     if (dto.bio !== undefined) patch.bio = dto.bio;
     if (dto.photoUrl !== undefined) patch.photoUrl = dto.photoUrl;
 
-    // si tu entidad tiene estos campos:
+    // si tu entidad tiene geolocalización:
     if (dto.lat !== undefined) (patch as any).lat = dto.lat;
     if (dto.lng !== undefined) (patch as any).lng = dto.lng;
     if (dto.radiusKm !== undefined) (patch as any).radiusKm = dto.radiusKm;
@@ -107,11 +97,16 @@ export class ProvidersService {
     return this.getMyProfile(userId);
   }
 
-  async getMyServiceTypes(userId: number) {
+  // -------- Mis tipos de servicio --------
+  /** Lista los tipos del proveedor autenticado. Permite filtrar por `active`. */
+  async getMyServiceTypes(userId: number, opts?: { active?: boolean }) {
     const p = await this.getOrCreateProfile(userId);
 
+    const where: any = { provider: { id: p.id } as any };
+    if (typeof opts?.active === 'boolean') where.active = opts.active;
+
     const rows = await this.pstRepo.find({
-      where: { provider: { id: p.id } as any },
+      where,
       relations: { serviceType: true },
       order: { id: 'ASC' },
     });
@@ -120,18 +115,25 @@ export class ProvidersService {
       id: r.id,
       serviceTypeId: r.serviceType.id,
       serviceTypeName: r.serviceType.name,
-      basePrice: r.basePrice, // string (DECIMAL en MySQL)
+      basePrice: r.basePrice, // string | null (DECIMAL)
       active: r.active,
     }));
   }
 
+  /**
+   * Reemplaza TODOS los tipos del proveedor por los provistos en `items`.
+   * Idempotente: actualiza los existentes, crea los que faltan y elimina los no listados.
+   */
   async setMyServiceTypes(userId: number, items: ServiceTypeItemDto[]) {
     const p = await this.getOrCreateProfile(userId);
 
     const ids = items.map((i) => i.serviceTypeId);
-    const found = await this.stRepo.find({ where: { id: In(ids) } });
-    if (found.length !== ids.length)
-      throw new NotFoundException('Some serviceTypeId not found');
+    if (ids.length) {
+      const found = await this.stRepo.find({ where: { id: In(ids) } });
+      if (found.length !== ids.length) {
+        throw new NotFoundException('Some serviceTypeId not found');
+      }
+    }
 
     const existing = await this.pstRepo.find({
       where: { provider: { id: p.id } as any },
@@ -144,31 +146,93 @@ export class ProvidersService {
     for (const it of items) {
       const prev = byServiceTypeId.get(it.serviceTypeId);
       if (prev) {
-        if (typeof it.basePrice === 'number')
-          prev.basePrice = String(it.basePrice);
+        if (typeof it.basePrice === 'number') prev.basePrice = String(it.basePrice);
         if (typeof it.active === 'boolean') prev.active = it.active;
         await this.pstRepo.save(prev);
         keep.add(prev.serviceType.id);
       } else {
-        const row = this.pstRepo.create({
-          provider: { id: p.id } as any,
-          serviceType: { id: it.serviceTypeId } as any,
-          basePrice:
-            typeof it.basePrice === 'number' ? String(it.basePrice) : null,
+        const st = await this.stRepo.findOne({ where: { id: it.serviceTypeId } });
+        if (!st) throw new NotFoundException('ServiceType not found');
+
+        const created = this.pstRepo.create({
+          provider: p,
+          serviceType: st,
+          basePrice: typeof it.basePrice === 'number' ? String(it.basePrice) : null,
           active: typeof it.active === 'boolean' ? it.active : true,
-        });
-        await this.pstRepo.save(row);
+        } as DeepPartial<ProviderServiceType>);
+
+        await this.pstRepo.save(created);
         keep.add(it.serviceTypeId);
       }
     }
 
+    // eliminar los que no están en la lista nueva
     const toRemove = existing.filter((e) => !keep.has(e.serviceType.id));
     if (toRemove.length) await this.pstRepo.remove(toRemove);
 
     return this.getMyServiceTypes(userId);
   }
 
-  /** Perfil público por userId (datos visibles + resumen numérico) */
+  /** Upsert unitario (POST /providers/me/service-types). */
+  async upsertMyServiceType(userId: number, it: ServiceTypeItemDto) {
+    const p = await this.getOrCreateProfile(userId);
+
+    const st = await this.stRepo.findOne({ where: { id: it.serviceTypeId } });
+    if (!st) throw new NotFoundException('ServiceType not found');
+
+    const existing = await this.pstRepo.findOne({
+      where: { provider: { id: p.id } as any, serviceType: { id: st.id } as any },
+      relations: { serviceType: true },
+    });
+
+    let row: ProviderServiceType;
+    if (existing) {
+      row = existing;
+      if (typeof it.basePrice === 'number') row.basePrice = String(it.basePrice);
+      if (typeof it.active === 'boolean') row.active = it.active;
+    } else {
+      row = this.pstRepo.create({
+        provider: p,
+        serviceType: st,
+        basePrice: typeof it.basePrice === 'number' ? String(it.basePrice) : null,
+        active: typeof it.active === 'boolean' ? it.active : true,
+      } as DeepPartial<ProviderServiceType>);
+    }
+
+    row = await this.pstRepo.save(row);
+
+    return {
+      id: row.id,
+      serviceTypeId: st.id,
+      serviceTypeName: st.name,
+      basePrice: row.basePrice,
+      active: row.active,
+    };
+  }
+
+  /** Desactiva un tipo (DELETE /providers/me/service-types/:serviceTypeId). */
+  async deactivateMyServiceType(userId: number, serviceTypeId: number) {
+    const p = await this.getOrCreateProfile(userId);
+
+    const row = await this.pstRepo.findOne({
+      where: { provider: { id: p.id } as any, serviceType: { id: serviceTypeId } as any },
+      relations: { serviceType: true },
+    });
+    if (!row) throw new NotFoundException('Service type not linked');
+
+    row.active = false;
+    const saved = await this.pstRepo.save(row);
+
+    return {
+      id: saved.id,
+      serviceTypeId: saved.serviceType.id,
+      serviceTypeName: saved.serviceType.name,
+      basePrice: saved.basePrice,
+      active: saved.active,
+    };
+  }
+
+  // -------- Público --------
   async getPublicProfileByUserId(userId: number) {
     const profile = await this.profileRepo.findOne({
       where: { user: { id: userId } as any },
@@ -188,7 +252,7 @@ export class ProvidersService {
     };
   }
 
-  /** Tipos de servicio ofrecidos por el proveedor (filtra por userId) */
+  /** Tipos activos públicos por userId. */
   async getServiceTypesForUser(userId: number) {
     const profile = await this.profileRepo.findOne({
       where: { user: { id: userId } as any },
@@ -211,7 +275,7 @@ export class ProvidersService {
     }));
   }
 
-  /** Buscar proveedores por tipo + radio desde lat/lng */
+  // -------- Búsqueda de proveedores --------
   async searchProviders(q: SearchProvidersDto) {
     const serviceTypeId = Number(q.serviceTypeId);
     const lat = Number(q.lat);
@@ -222,12 +286,10 @@ export class ProvidersService {
     const sort = (q.sort ?? 'distance') as 'distance' | 'rating' | 'price';
 
     if (Number.isNaN(serviceTypeId) || Number.isNaN(lat) || Number.isNaN(lng)) {
-      throw new BadRequestException(
-        'serviceTypeId, lat y lng son requeridos',
-      );
+      throw new BadRequestException('serviceTypeId, lat y lng son requeridos');
     }
 
-    // Haversine (km) sobre la dirección por defecto del proveedor
+    // Distancia (km) desde la dirección por defecto del proveedor
     const distanceExpr = `
       6371 * acos(
         cos(radians(:lat)) * cos(radians(addr.lat)) * cos(radians(addr.lng) - radians(:lng))
@@ -272,10 +334,10 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
-    // HAVING por radio (alias calculado)
+    // radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
-    // Orden
+    // orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
@@ -284,12 +346,11 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
-    // Total sin paginar
+    // total y página
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
 
-    // Página
     const rows = await baseQb.skip((page - 1) * limit).take(limit).getRawMany();
 
     const items = rows.map((r: any) => ({
@@ -298,7 +359,7 @@ export class ProvidersService {
       photoUrl: r.photoUrl ?? null,
       ratingAvg: r.ratingAvg, // string (DECIMAL)
       ratingCount: Number(r.ratingCount ?? 0),
-      basePrice: r.basePrice, // string (DECIMAL) o null
+      basePrice: r.basePrice as string | null,
       serviceTypeName: r.serviceTypeName,
       distanceKm: Number(r.distanceKm?.toFixed?.(2) ?? r.distanceKm),
       location: { lat: Number(r.lat), lng: Number(r.lng) },

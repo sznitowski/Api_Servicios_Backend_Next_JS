@@ -25,4 +25,4 @@ import { RatingsModule } from '../ragings/ratings.module'; // ojo con el path
   providers: [ProvidersService],
   exports: [ProvidersService],
 })
-export class ProvidersModule {}
+export class ProvidersModule { }

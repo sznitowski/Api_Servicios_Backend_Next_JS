@@ -5,6 +5,8 @@ import {
   Get,
   Patch,
   Put,
+  Post,
+  Delete,
   Req,
   UseGuards,
   Query,
@@ -14,16 +16,16 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ProvidersService } from './providers.service';
 
-// DTOs propios
+// DTOs
 import { UpdateProviderProfileDto } from './dto/update-provider-profile.dto';
-import { SetServiceTypesDto } from './dto/set-service-types.dto';
+import { SetServiceTypesDto, ServiceTypeItemDto } from './dto/set-service-types.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { SearchProvidersDto } from './dto/search-providers.dto';
 
-// Ratings (mantengo tu path actual)
+// Ratings
 import { RatingsService } from '../ragings/ratings.service';
 
-// Swagger (opcional)
+// Swagger
 import {
   ApiTags,
   ApiBearerAuth,
@@ -33,6 +35,7 @@ import {
   ApiQuery,
   ApiParam,
   ApiBody,
+  ApiCreatedResponse,
 } from '@nestjs/swagger';
 
 @ApiTags('providers')
@@ -43,14 +46,14 @@ export class ProvidersController {
   constructor(
     private readonly service: ProvidersService,
     private readonly ratings: RatingsService,
-  ) { }
+  ) {}
 
-  /** Obtiene el userId desde el token (id o sub, según tu estrategia JWT). */
+  /** userId desde el token (id o sub) */
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
 
-  // ---------- Perfil del proveedor autenticado ----------
+  // ---------- Perfil ----------
   @ApiOperation({ summary: 'Ver mi perfil de proveedor' })
   @ApiOkResponse({ description: 'Perfil actual del proveedor' })
   @ApiUnauthorizedResponse({ description: 'No autenticado.' })
@@ -68,20 +71,26 @@ export class ProvidersController {
     return this.service.updateMyProfile(this.uid(req), dto);
   }
 
-  // ---------- Service Types del proveedor ----------
+  // ---------- Service Types propios ----------
   @ApiOperation({ summary: 'Listar mis tipos de servicio' })
+  @ApiQuery({ name: 'active', required: false, type: Boolean, example: true })
   @ApiOkResponse({ description: 'Tipos de servicio del proveedor' })
   @ApiUnauthorizedResponse({ description: 'No autenticado.' })
   @Get('me/service-types')
-  myServiceTypes(@Req() req: any) {
-    return this.service.getMyServiceTypes(this.uid(req));
+  myServiceTypes(@Req() req: any, @Query('active') active?: string) {
+    const flag =
+      typeof active === 'string'
+        ? active.toLowerCase() === 'true'
+          ? true
+          : active.toLowerCase() === 'false'
+          ? false
+          : undefined
+        : undefined;
+    return this.service.getMyServiceTypes(this.uid(req), { active: flag });
   }
 
-  @ApiOperation({ summary: 'Establecer mis tipos de servicio' })
-  @ApiBody({
-    description: 'Lista completa a establecer (reemplaza los actuales)',
-    type: SetServiceTypesDto,
-  })
+  @ApiOperation({ summary: 'Establecer TODOS mis tipos (reemplaza)' })
+  @ApiBody({ type: SetServiceTypesDto })
   @ApiOkResponse({ description: 'Tipos de servicio actualizados' })
   @ApiUnauthorizedResponse({ description: 'No autenticado.' })
   @Put('me/service-types')
@@ -89,7 +98,28 @@ export class ProvidersController {
     return this.service.setMyServiceTypes(this.uid(req), dto.items);
   }
 
-  // ---------- Ratings del proveedor autenticado ----------
+  @ApiOperation({ summary: 'Activar/actualizar un tipo de servicio' })
+  @ApiBody({ type: ServiceTypeItemDto })
+  @ApiCreatedResponse({ description: 'Tipo activado/actualizado' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado.' })
+  @Post('me/service-types')
+  upsertMyServiceType(@Body() dto: ServiceTypeItemDto, @Req() req: any) {
+    return this.service.upsertMyServiceType(this.uid(req), dto);
+  }
+
+  @ApiOperation({ summary: 'Desactivar un tipo de servicio' })
+  @ApiParam({ name: 'serviceTypeId', type: Number })
+  @ApiOkResponse({ description: 'Tipo desactivado' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado.' })
+  @Delete('me/service-types/:serviceTypeId')
+  deactivateMyServiceType(
+    @Param('serviceTypeId', ParseIntPipe) serviceTypeId: number,
+    @Req() req: any,
+  ) {
+    return this.service.deactivateMyServiceType(this.uid(req), serviceTypeId);
+  }
+
+  // ---------- Ratings propios ----------
   @ApiOperation({ summary: 'Listar mis calificaciones' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 5 })
@@ -111,7 +141,7 @@ export class ProvidersController {
     return this.ratings.summaryForProvider(this.uid(req));
   }
 
-  // ---------- Búsqueda (ruta fija, va ANTES de cualquier :id) ----------
+  // ---------- Búsqueda pública ----------
   @ApiOperation({ summary: 'Buscar proveedores por tipo y radio' })
   @ApiOkResponse({ description: 'Listado paginado con distancia y precio base' })
   @ApiQuery({ name: 'serviceTypeId', required: true, type: Number })
@@ -131,23 +161,25 @@ export class ProvidersController {
     return this.service.searchProviders(q);
   }
 
-  // ---------- Público por :id (van DESPUÉS de /search para evitar colisiones) ----------
+  // ---------- Público por :id (después de /search para no colisionar) ----------
   @ApiOperation({ summary: 'Perfil público del proveedor (por userId)' })
-  @ApiParam({ name: 'id', type: Number, description: 'UserId del proveedor' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Perfil público' })
   @Get(':id')
   profileById(@Param('id', ParseIntPipe) id: number) {
     return this.service.getPublicProfileByUserId(id);
   }
 
   @ApiOperation({ summary: 'Tipos de servicio activos del proveedor (por userId)' })
-  @ApiParam({ name: 'id', type: Number, description: 'UserId del proveedor' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Tipos de servicio activos' })
   @Get(':id/service-types')
   serviceTypesById(@Param('id', ParseIntPipe) id: number) {
     return this.service.getServiceTypesForUser(id);
   }
 
-  @ApiOperation({ summary: 'Listar calificaciones por proveedor (por id)' })
-  @ApiParam({ name: 'id', type: Number, description: 'UserId del proveedor' })
+  @ApiOperation({ summary: 'Listar calificaciones por proveedor (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
   @ApiOkResponse({ description: 'Listado paginado de ratings' })
@@ -162,8 +194,8 @@ export class ProvidersController {
     });
   }
 
-  @ApiOperation({ summary: 'Resumen de calificaciones por proveedor (por id)' })
-  @ApiParam({ name: 'id', type: Number, description: 'UserId del proveedor' })
+  @ApiOperation({ summary: 'Resumen de calificaciones por proveedor (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Promedio y conteos por estrellas' })
   @Get(':id/ratings/summary')
   ratingsSummaryByProvider(@Param('id', ParseIntPipe) id: number) {
