@@ -1,30 +1,27 @@
 // src/modules/users/dto/update-address.dto.ts
-import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsBoolean, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateAddressDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
+  @ApiPropertyOptional({ maxLength: 60 }) @IsOptional() @IsString() @MaxLength(60)
   label?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  @ApiPropertyOptional({ maxLength: 200 }) @IsOptional() @IsString() @MaxLength(200)
   address?: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @ApiPropertyOptional({ minimum: -90, maximum: 90, type: Number })
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(-90) @Max(90)
   lat?: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @ApiPropertyOptional({ minimum: -180, maximum: 180, type: Number })
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(-180) @Max(180)
   lng?: number;
 
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
+  @ApiPropertyOptional({ maxLength: 200 }) @IsOptional() @IsString() @MaxLength(200)
+  notes?: string;
+
+  @ApiPropertyOptional({ type: Boolean })
+  @IsOptional() @Type(() => Boolean) @IsBoolean()
   isDefault?: boolean;
 }

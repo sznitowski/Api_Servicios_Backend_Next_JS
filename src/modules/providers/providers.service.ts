@@ -53,7 +53,6 @@ export class ProvidersService {
       } as Partial<ProviderProfile>);
 
       profile = await this.profileRepo.save(profile);
-
       profile = await this.profileRepo.findOne({
         where: { id: profile.id },
         relations: { user: true },
@@ -65,16 +64,9 @@ export class ProvidersService {
 
   // -------- Perfil propio --------
   async getMyProfile(userId: number) {
+    // ❗ Fix: usar profileRepo y garantizar existencia
     const p = await this.getOrCreateProfile(userId);
-    return {
-      ...p,
-      user: {
-        id: p.user.id,
-        email: p.user.email,
-        name: p.user.name,
-        role: p.user.role,
-      },
-    };
+    return p; // si querés, podés mapear a un DTO público aquí
   }
 
   async updateMyProfile(userId: number, dto: UpdateProviderProfileDto) {
@@ -87,9 +79,9 @@ export class ProvidersService {
     if (dto.photoUrl !== undefined) patch.photoUrl = dto.photoUrl;
 
     // si tu entidad tiene geolocalización:
-    if (dto.lat !== undefined) (patch as any).lat = dto.lat;
-    if (dto.lng !== undefined) (patch as any).lng = dto.lng;
-    if (dto.radiusKm !== undefined) (patch as any).radiusKm = dto.radiusKm;
+    if ((dto as any).lat !== undefined) (patch as any).lat = (dto as any).lat;
+    if ((dto as any).lng !== undefined) (patch as any).lng = (dto as any).lng;
+    if ((dto as any).radiusKm !== undefined) (patch as any).radiusKm = (dto as any).radiusKm;
 
     Object.assign(profile, patch);
     await this.profileRepo.save(profile);
@@ -98,7 +90,6 @@ export class ProvidersService {
   }
 
   // -------- Mis tipos de servicio --------
-  /** Lista los tipos del proveedor autenticado. Permite filtrar por `active`. */
   async getMyServiceTypes(userId: number, opts?: { active?: boolean }) {
     const p = await this.getOrCreateProfile(userId);
 
@@ -115,15 +106,11 @@ export class ProvidersService {
       id: r.id,
       serviceTypeId: r.serviceType.id,
       serviceTypeName: r.serviceType.name,
-      basePrice: r.basePrice, // string | null (DECIMAL)
+      basePrice: r.basePrice,
       active: r.active,
     }));
   }
 
-  /**
-   * Reemplaza TODOS los tipos del proveedor por los provistos en `items`.
-   * Idempotente: actualiza los existentes, crea los que faltan y elimina los no listados.
-   */
   async setMyServiceTypes(userId: number, items: ServiceTypeItemDto[]) {
     const p = await this.getOrCreateProfile(userId);
 
@@ -166,14 +153,12 @@ export class ProvidersService {
       }
     }
 
-    // eliminar los que no están en la lista nueva
     const toRemove = existing.filter((e) => !keep.has(e.serviceType.id));
     if (toRemove.length) await this.pstRepo.remove(toRemove);
 
     return this.getMyServiceTypes(userId);
   }
 
-  /** Upsert unitario (POST /providers/me/service-types). */
   async upsertMyServiceType(userId: number, it: ServiceTypeItemDto) {
     const p = await this.getOrCreateProfile(userId);
 
@@ -210,7 +195,6 @@ export class ProvidersService {
     };
   }
 
-  /** Desactiva un tipo (DELETE /providers/me/service-types/:serviceTypeId). */
   async deactivateMyServiceType(userId: number, serviceTypeId: number) {
     const p = await this.getOrCreateProfile(userId);
 
@@ -252,7 +236,6 @@ export class ProvidersService {
     };
   }
 
-  /** Tipos activos públicos por userId. */
   async getServiceTypesForUser(userId: number) {
     const profile = await this.profileRepo.findOne({
       where: { user: { id: userId } as any },
@@ -275,7 +258,7 @@ export class ProvidersService {
     }));
   }
 
-  // -------- Búsqueda de proveedores --------
+  // -------- Búsqueda --------
   async searchProviders(q: SearchProvidersDto) {
     const serviceTypeId = Number(q.serviceTypeId);
     const lat = Number(q.lat);
@@ -289,7 +272,6 @@ export class ProvidersService {
       throw new BadRequestException('serviceTypeId, lat y lng son requeridos');
     }
 
-    // Distancia (km) desde la dirección por defecto del proveedor
     const distanceExpr = `
       6371 * acos(
         cos(radians(:lat)) * cos(radians(addr.lat)) * cos(radians(addr.lng) - radians(:lng))
@@ -319,7 +301,6 @@ export class ProvidersService {
       .addSelect('addr.lng', 'lng')
       .addSelect(distanceExpr, 'distanceKm')
       .setParameters({ lat, lng })
-      // Agrupar para ONLY_FULL_GROUP_BY
       .groupBy('pst.id')
       .addGroupBy('prov.id')
       .addGroupBy('u.id')
@@ -334,10 +315,8 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
-    // radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
-    // orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
@@ -346,7 +325,6 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
-    // total y página
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
@@ -357,7 +335,7 @@ export class ProvidersService {
       providerUserId: Number(r.providerUserId),
       displayName: r.displayName ?? null,
       photoUrl: r.photoUrl ?? null,
-      ratingAvg: r.ratingAvg, // string (DECIMAL)
+      ratingAvg: r.ratingAvg,
       ratingCount: Number(r.ratingCount ?? 0),
       basePrice: r.basePrice as string | null,
       serviceTypeName: r.serviceTypeName,

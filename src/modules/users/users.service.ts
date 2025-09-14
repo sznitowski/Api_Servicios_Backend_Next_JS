@@ -18,9 +18,9 @@ export class UsersService {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserAddress)
     private readonly addrRepo: Repository<UserAddress>,
-  ) {}
+  ) { }
 
-  // ---------- USERS (existentes) ----------
+  // ---------- USERS ----------
   async create(payload: {
     email: string;
     name: string;
@@ -113,59 +113,65 @@ export class UsersService {
   }
 
   async createMyAddress(userId: number, dto: CreateAddressDto) {
-    // si marca default, apagar los demás
-    if (dto.isDefault) {
-      await this.addrRepo.update(
-        { user: { id: userId } as any },
-        { isDefault: false },
-      );
-    }
-
-    // si no hay direcciones aún, forzar default
-    const count = await this.addrRepo.count({
-      where: { user: { id: userId } as any },
-    });
-    const isDefault = dto.isDefault || count === 0;
-
-    const row = this.addrRepo.create({
-      user: { id: userId } as any,
-      label: dto.label ?? null,
-      address: dto.address,
-      lat: dto.lat != null ? String(dto.lat) : null,
-      lng: dto.lng != null ? String(dto.lng) : null,
-      isDefault,
-    });
-
-    return this.addrRepo.save(row);
+  // si marca default, apagar los demás
+  if (dto.isDefault) {
+    await this.addrRepo.update(
+      { user: { id: userId } as any },
+      { isDefault: false },
+    );
   }
 
-  async updateMyAddress(
-    userId: number,
-    addrId: number,
-    dto: UpdateAddressDto,
-  ) {
-    const row = await this.addrRepo.findOne({
-      where: { id: addrId, user: { id: userId } as any },
-    });
-    if (!row) throw new NotFoundException('Address not found');
+  // si no hay direcciones aún, forzar default
+  const count = await this.addrRepo.count({
+    where: { user: { id: userId } as any },
+  });
+  const isDefault = dto.isDefault || count === 0;
 
-    if (dto.label !== undefined) row.label = dto.label;
-    if (dto.address !== undefined) row.address = dto.address;
-    if (dto.lat !== undefined) row.lat = dto.lat != null ? String(dto.lat) : null;
-    if (dto.lng !== undefined) row.lng = dto.lng != null ? String(dto.lng) : null;
+  const row = this.addrRepo.create({
+    user: { id: userId } as any,
+    label: dto.label ?? null,
+    address: dto.address,
+    latitude: dto.lat ?? null,   // <- del DTO
+    longitude: dto.lng ?? null,  // <- del DTO
+    notes: dto.notes ?? null,    // <- nuevo
+    isDefault,
+  });
 
-    if (dto.isDefault === true) {
-      await this.addrRepo.update(
-        { user: { id: userId } as any },
-        { isDefault: false },
-      );
-      row.isDefault = true;
-    } else if (dto.isDefault === false) {
-      row.isDefault = false;
-    }
+  return this.addrRepo.save(row);
+}
 
-    return this.addrRepo.save(row);
+
+async updateMyAddress(
+  userId: number,
+  addrId: number,
+  dto: UpdateAddressDto,
+) {
+  const row = await this.addrRepo.findOne({
+    where: { id: addrId, user: { id: userId } as any },
+  });
+  if (!row) throw new NotFoundException('Address not found');
+
+  // setters campo a campo
+  if (dto.label   !== undefined) row.label     = dto.label ?? null;
+  if (dto.address !== undefined) row.address   = dto.address!;
+  if (dto.lat     !== undefined) row.latitude  = dto.lat ?? null;
+  if (dto.lng     !== undefined) row.longitude = dto.lng ?? null;
+  if (dto.notes   !== undefined) row.notes     = dto.notes ?? null; // <-- acá va
+
+  // manejo de default
+  if (dto.isDefault === true) {
+    await this.addrRepo.update(
+      { user: { id: userId } as any },
+      { isDefault: false },
+    );
+    row.isDefault = true;
+  } else if (dto.isDefault === false) {
+    row.isDefault = false;
   }
+
+  return this.addrRepo.save(row);
+}
+
 
   async deleteMyAddress(userId: number, addrId: number) {
     const row = await this.addrRepo.findOne({

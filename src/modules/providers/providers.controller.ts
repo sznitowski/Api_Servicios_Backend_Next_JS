@@ -23,7 +23,7 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { SearchProvidersDto } from './dto/search-providers.dto';
 
 // Ratings
-import { RatingsService } from '../ragings/ratings.service';
+import { RatingsService } from '../ragings/ratings.service'; // <- si tu carpeta se llama "ragings", dejalo así
 
 // Swagger
 import {
