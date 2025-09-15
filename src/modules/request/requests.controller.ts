@@ -21,6 +21,8 @@ import { RateRequestDto } from './dto/rate-request.dto';
 import { ListRequestsQueryDto } from './dto/list-requests.query.dto';
 import { OpenRequestsQueryDto } from './dto/open-requests.query.dto';
 import { FeedQueryDto } from './dto/feed.dto';
+import { MineQueryDto } from './dto/mine.dto';
+import { CancelRequestDto } from './dto/cancel-request.dto';
 
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -43,20 +45,25 @@ import {
 
 @ApiTags('requests')
 @ApiBearerAuth()
+// Todas las rutas requieren JWT
 @UseGuards(AuthGuard('jwt'))
 @Controller('requests')
 export class RequestsController {
   constructor(
     private readonly service: RequestsService,
     private readonly ratings: RatingsService,
-  ) { }
+  ) {}
 
-  /** Helper: userId desde el token (id o sub) */
+  // Helper: toma userId desde el token (algunos tests usan `id`, otros `sub`)
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
 
-  // ---------- FEED (simple) ----------
+  // ===========================================================================
+  // FEED Y ABIERTOS (para proveedores)
+  // ===========================================================================
+
+  // GET /requests/feed -> feed simple, sin paginar (hasta 50), orden por distancia
   @ApiOperation({ summary: 'Feed de pedidos abiertos cerca (PROVIDER)' })
   @ApiOkResponse({ description: 'Listado con distancia' })
   @UseGuards(RolesGuard)
@@ -65,46 +72,49 @@ export class RequestsController {
   feed(@Req() req: any, @Query() q: FeedQueryDto) {
     return this.service.feed(
       { lat: q.lat, lng: q.lng, radiusKm: q.radiusKm ?? 10 },
-      this.uid(req)
+      this.uid(req),
     );
   }
 
-// ---------- OPEN (paginado) ----------
-@ApiOperation({ summary: 'Pedidos abiertos cerca con paginación (PROVIDER)' })
-@ApiOkResponse({ description: 'Listado paginado con distancia' })
-@ApiQuery({ name: 'lat', type: Number, required: true })
-@ApiQuery({ name: 'lng', type: Number, required: true })
-@ApiQuery({ name: 'radiusKm', type: Number, required: false, example: 10 })
-@ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
-@ApiQuery({ name: 'limit', type: Number, required: false, example: 20 })
-@ApiQuery({ name: 'serviceTypeId', type: Number, required: false })
-@ApiQuery({ name: 'sort', required: false, enum: ['distance', 'createdAt'], example: 'distance' })
-@UseGuards(RolesGuard)
-@Roles(UserRole.PROVIDER, UserRole.ADMIN)
-@Get('open')
-open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
-  // Validación mínima
-  if (q.lat == null || q.lng == null) {
-    throw new BadRequestException('lat y lng son requeridos');
+  // GET /requests/open -> feed paginado con filtros y sort por distancia/fecha
+  @ApiOperation({ summary: 'Pedidos abiertos cerca con paginación (PROVIDER)' })
+  @ApiOkResponse({ description: 'Listado paginado con distancia' })
+  @ApiQuery({ name: 'lat', type: Number, required: true })
+  @ApiQuery({ name: 'lng', type: Number, required: true })
+  @ApiQuery({ name: 'radiusKm', type: Number, required: false, example: 10 })
+  @ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
+  @ApiQuery({ name: 'limit', type: Number, required: false, example: 20 })
+  @ApiQuery({ name: 'serviceTypeId', type: Number, required: false })
+  @ApiQuery({ name: 'sort', required: false, enum: ['distance', 'createdAt'], example: 'distance' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
+  @Get('open')
+  open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
+    // Validación mínima por si el transform no corrió
+    if (q.lat == null || q.lng == null) {
+      throw new BadRequestException('lat y lng son requeridos');
+    }
+
+    return this.service.open(
+      {
+        lat: Number(q.lat),
+        lng: Number(q.lng),
+        radiusKm: q.radiusKm ?? 10,
+        page: Math.max(1, Number(q.page ?? 1)),
+        limit: Math.max(1, Math.min(Number(q.limit ?? 20), 50)),
+        serviceTypeId:
+          q.serviceTypeId != null ? Number(q.serviceTypeId) : undefined,
+        sort: q.sort, // 'distance' | 'createdAt'
+      },
+      this.uid(req),
+    );
   }
 
-  return this.service.open(
-    {
-      lat: Number(q.lat),
-      lng: Number(q.lng),
-      radiusKm: q.radiusKm ?? 10,
-      page: Math.max(1, Number(q.page ?? 1)),
-      limit: Math.max(1, Math.min(Number(q.limit ?? 20), 50)),
-      serviceTypeId: q.serviceTypeId != null ? Number(q.serviceTypeId) : undefined,
-      sort: q.sort, // 'distance' | 'createdAt'
-    },
-    this.uid(req),
-  );
-}
+  // ===========================================================================
+  // CREAR
+  // ===========================================================================
 
-  
-
-  // ---------- CREATE ----------
+  // POST /requests -> crea un request PENDING del cliente autenticado
   @ApiOperation({ summary: 'Crear un request' })
   @ApiBody({ type: CreateRequestDto })
   @ApiCreatedResponse({ description: 'Request creado' })
@@ -115,21 +125,51 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.create(body, this.uid(req));
   }
 
-  // ---------- LISTADOS ----------
-  @ApiOperation({ summary: 'Mis solicitudes como CLIENT' })
+  // ===========================================================================
+  // MIS SOLICITUDES (3 variantes: unificada y legacy por rol)
+  // ===========================================================================
+
+  // GET /requests/mine -> unificado (por default infiere el "as" según el rol)
+  // Usa MineQueryDto (as, status, page, limit)
+  @ApiOperation({ summary: 'Mis solicitudes (unificado, CLIENT o PROVIDER)' })
   @ApiOkResponse({ description: 'Listado paginado' })
-  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'] })
+  @ApiQuery({ name: 'as', required: false, enum: ['client', 'provider'] })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'],
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @Get('mine')
+  listMineUnified(@Req() req: any, @Query() q: MineQueryDto) {
+    const role: UserRole = req?.user?.role ?? UserRole.CLIENT;
+    return this.service.listMineByRole(this.uid(req), role, q);
+  }
+
+  // GET /requests/me -> (LEGACY) como CLIENT
+  @ApiOperation({ summary: 'Mis solicitudes como CLIENT (LEGACY)' })
+  @ApiOkResponse({ description: 'Listado paginado' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'],
+  })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Get('me')
   listMine(@Req() req: any, @Query() q: ListRequestsQueryDto) {
     return this.service.listByClient(this.uid(req), q);
-
   }
 
-  @ApiOperation({ summary: 'Mis solicitudes como PROVIDER' })
+  // GET /requests/provider/me -> (LEGACY) como PROVIDER
+  @ApiOperation({ summary: 'Mis solicitudes como PROVIDER (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
-  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'] })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'],
+  })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Get('provider/me')
@@ -137,7 +177,11 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.listByProvider(this.uid(req), q);
   }
 
-  // ---------- GET BY ID ----------
+  // ===========================================================================
+  // GET Y TIMELINE
+  // ===========================================================================
+
+  // GET /requests/:id -> detalle con relaciones
   @ApiOperation({ summary: 'Obtener un request por id' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request encontrado' })
@@ -148,7 +192,7 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.get(id);
   }
 
-  // ---------- TIMELINE ----------
+  // GET /requests/:id/timeline -> historial de transiciones
   @ApiOperation({ summary: 'Ver timeline de un request' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Transiciones del request' })
@@ -159,7 +203,11 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.timeline(id);
   }
 
-  // ---------- CLAIM ----------
+  // ===========================================================================
+  // TRANSICIONES (claim/accept/start/complete/cancel/admin-cancel)
+  // ===========================================================================
+
+  // POST /requests/:id/claim -> proveedor ofrece tomar el request
   @ApiOperation({ summary: 'Claim (proveedor ofrece tomar el request)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: OfferDto })
@@ -178,7 +226,7 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.claim(id, this.uid(req), body.priceOffered);
   }
 
-  // ---------- ACCEPT ----------
+  // POST /requests/:id/accept -> cliente acepta la oferta
   @ApiOperation({ summary: 'Accept (cliente acepta la oferta)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: AcceptDto })
@@ -197,7 +245,7 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.accept(id, this.uid(req), body.priceAgreed);
   }
 
-  // ---------- START ----------
+  // POST /requests/:id/start -> proveedor inicia el trabajo
   @ApiOperation({ summary: 'Start (proveedor inicia el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request en progreso' })
@@ -211,7 +259,7 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.start(id, this.uid(req));
   }
 
-  // ---------- COMPLETE ----------
+  // POST /requests/:id/complete -> proveedor marca como DONE
   @ApiOperation({ summary: 'Complete (proveedor completa el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request completado' })
@@ -225,19 +273,28 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.complete(id, this.uid(req));
   }
 
-  // ---------- CANCEL ----------
+  // POST /requests/:id/cancel -> cliente/proveedor cancela con motivo (opcional)
+  // Usa reglas por rol: CLIENT (PENDING|OFFERED|ACCEPTED), PROVIDER (OFFERED|ACCEPTED)
   @ApiOperation({ summary: 'Cancelar (cliente o proveedor del request)' })
   @ApiParam({ name: 'id', type: Number })
+  @ApiBody({ type: CancelRequestDto })
   @ApiOkResponse({ description: 'Request cancelado' })
-  @ApiBadRequestResponse({ description: 'Cannot cancel DONE' })
+  @ApiBadRequestResponse({ description: 'Estado no cancelable o DONE' })
   @ApiForbiddenResponse({ description: 'Not allowed' })
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.CLIENT, UserRole.PROVIDER) // Admin tiene endpoint aparte
   @Post(':id/cancel')
-  cancel(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    return this.service.cancel(id, this.uid(req));
+  cancel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: CancelRequestDto,
+    @Req() req: any,
+  ) {
+    const role: UserRole = req?.user?.role ?? UserRole.CLIENT;
+    return this.service.cancel(id, this.uid(req), role, body);
   }
 
-  // ---------- ADMIN CANCEL ----------
+  // POST /requests/:id/admin-cancel -> fuerza cancelación (sin restricciones de rol/estado)
   @ApiOperation({ summary: 'Cancelar como admin (auditable en timeline)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request cancelado por admin' })
@@ -250,16 +307,20 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.adminCancel(id, this.uid(req));
   }
 
-  // ---------- RATE ----------
+  // ===========================================================================
+  // RATING
+  // ===========================================================================
+
+  // POST /requests/:id/rate -> el CLIENT califica el trabajo
   @ApiOperation({ summary: 'Calificar trabajo (CLIENT)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: RateRequestDto })
   @ApiOkResponse({ description: 'Rating guardado' })
   @ApiForbiddenResponse({ description: 'Not allowed' })
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
-  @Post(':id/rate')
   @UseGuards(RolesGuard)
   @Roles(UserRole.CLIENT, UserRole.ADMIN)
+  @Post(':id/rate')
   rate(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: RateRequestDto,
@@ -268,13 +329,24 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.ratings.rateRequest(id, this.uid(req), body);
   }
 
-  // -------- SUMMARIES --------
+  // ===========================================================================
+  // RESÚMENES
+  // ===========================================================================
 
+  // GET /requests/me/summary -> resumen de mis solicitudes como CLIENT
   @ApiOperation({ summary: 'Resumen de mis solicitudes (CLIENT)' })
   @ApiOkResponse({
     description: 'Conteo por estado',
     schema: {
-      example: { PENDING: 2, OFFERED: 1, ACCEPTED: 0, IN_PROGRESS: 1, DONE: 5, CANCELLED: 1, total: 10 },
+      example: {
+        PENDING: 2,
+        OFFERED: 1,
+        ACCEPTED: 0,
+        IN_PROGRESS: 1,
+        DONE: 5,
+        CANCELLED: 1,
+        total: 10,
+      },
     },
   })
   @UseGuards(RolesGuard)
@@ -284,11 +356,20 @@ open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
     return this.service.mineSummary({ userId: this.uid(req), as: 'client' });
   }
 
+  // GET /requests/provider/me/summary -> resumen de mis solicitudes como PROVIDER
   @ApiOperation({ summary: 'Resumen de mis solicitudes (PROVIDER)' })
   @ApiOkResponse({
     description: 'Conteo por estado',
     schema: {
-      example: { PENDING: 0, OFFERED: 3, ACCEPTED: 2, IN_PROGRESS: 1, DONE: 7, CANCELLED: 0, total: 13 },
+      example: {
+        PENDING: 0,
+        OFFERED: 3,
+        ACCEPTED: 2,
+        IN_PROGRESS: 1,
+        DONE: 7,
+        CANCELLED: 0,
+        total: 13,
+      },
     },
   })
   @UseGuards(RolesGuard)

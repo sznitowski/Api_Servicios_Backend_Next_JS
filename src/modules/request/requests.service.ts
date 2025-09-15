@@ -13,10 +13,15 @@ import { ServiceRequest } from './request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { ListMyRequestsDto } from './dto/list-my.dto';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
-import { User } from '../users/user.entity';
+import { User, UserRole } from '../users/user.entity';
 import { RequestTransition } from './request-transition.entity';
 import { ListRequestsQueryDto } from './dto/list-requests.query.dto';
 
+// NUEVOS DTOs reusables
+import { MineQueryDto } from './dto/mine.dto';
+import { CancelRequestDto } from './dto/cancel-request.dto';
+
+// Estados válidos para un Request (coinciden con la entidad)
 type Status =
   | 'PENDING'
   | 'OFFERED'
@@ -39,9 +44,18 @@ export class RequestsService {
 
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
-  /** -------------------- FEED PARA PROVEEDORES -------------------- */
+  // ---------------------------------------------------------------------------
+  // FEED PARA PROVEEDORES
+  // ---------------------------------------------------------------------------
+  /**
+   * Devuelve pedidos abiertos (PENDING) cercanos para un proveedor.
+   * - Filtra por radio usando Haversine (en KM)
+   * - Excluye pedidos del propio proveedor
+   * - Requiere que el proveedor ofrezca ese service_type (provider_service_types)
+   * - Excluye pedidos con los que el proveedor ya interactuó (hay transición suya)
+   */
   async feed(
     args: { lat: number; lng: number; radiusKm: number },
     providerId: number,
@@ -103,9 +117,14 @@ export class RequestsService {
       distanceKm: Number(raw[i].distance),
     }));
   }
-  /** --------------------------------------------------------------- */
 
-  /** Helper para dejar un registro de transición */
+  // ---------------------------------------------------------------------------
+  // TIMELINE / TRANSICIONES
+  // ---------------------------------------------------------------------------
+  /**
+   * Helper interno para registrar una transición en el timeline.
+   * Guarda: from -> to, actor, precios (si aplica) y notas (motivo libre).
+   */
   private async logTransition(args: {
     request: ServiceRequest;
     actorId?: number;
@@ -127,6 +146,34 @@ export class RequestsService {
     await this.trRepo.save(row);
   }
 
+  /**
+   * Historial (timeline) ordenado por fecha ascendente.
+   * Incluye datos básicos del actor.
+   */
+  async timeline(requestId: number) {
+    return this.trRepo.find({
+      where: { request: { id: requestId } as any },
+      order: { createdAt: 'ASC' },
+      relations: { actor: true },
+      select: {
+        id: true,
+        fromStatus: true,
+        toStatus: true,
+        priceOffered: true,
+        priceAgreed: true,
+        notes: true,
+        createdAt: true,
+        actor: { id: true, email: true, name: true, role: true },
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // CRUD BÁSICO DE REQUESTS
+  // ---------------------------------------------------------------------------
+  /**
+   * Crea un Request PENDING a nombre de un cliente.
+   */
   async create(dto: CreateRequestDto, clientId: number) {
     const serviceType = await this.stRepo.findOne({ where: { id: dto.serviceTypeId } });
     if (!serviceType) throw new NotFoundException('Service type not found');
@@ -151,22 +198,9 @@ export class RequestsService {
     return saved;
   }
 
-  findMyClient(clientId: number) {
-    return this.repo.find({
-      where: { client: { id: clientId } },
-      order: { createdAt: 'DESC' },
-      relations: { client: true, provider: true, serviceType: true },
-    });
-  }
-
-  findMyProvider(providerId: number) {
-    return this.repo.find({
-      where: { provider: { id: providerId } },
-      order: { createdAt: 'DESC' },
-      relations: { client: true, provider: true, serviceType: true },
-    });
-  }
-
+  /**
+   * Obtiene un request por id con relaciones principales.
+   */
   async get(id: number) {
     const r = await this.repo.findOne({
       where: { id },
@@ -176,6 +210,16 @@ export class RequestsService {
     return r;
   }
 
+  // ---------------------------------------------------------------------------
+  // TRANSICIONES DE ESTADO (claim / accept / start / complete / cancel)
+  // ---------------------------------------------------------------------------
+  /**
+   * claim: un proveedor se postula/ofrece para realizar un request.
+   * Reglas:
+   *  - No puede clamear su propio pedido
+   *  - Solo PENDING puede pasar a OFFERED
+   *  - Evita reclamos duplicados
+   */
   async claim(id: number, providerId: number, priceOffered?: number) {
     const r = await this.get(id);
 
@@ -214,6 +258,12 @@ export class RequestsService {
     return saved;
   }
 
+  /**
+   * accept: el cliente acepta una oferta.
+   * Reglas:
+   *  - Solo OFFERED -> ACCEPTED
+   *  - Puede registrar priceAgreed
+   */
   async accept(id: number, clientId: number, priceAgreed?: number) {
     const r = await this.get(id);
     if (r.client.id !== clientId) throw new ForbiddenException('Not your request');
@@ -236,6 +286,12 @@ export class RequestsService {
     return saved;
   }
 
+  /**
+   * start: el proveedor inicia el trabajo.
+   * Reglas:
+   *  - Solo el proveedor asignado
+   *  - Solo ACCEPTED -> IN_PROGRESS
+   */
   async start(id: number, providerId: number) {
     const r = await this.get(id);
     if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
@@ -251,6 +307,12 @@ export class RequestsService {
     return saved;
   }
 
+  /**
+   * complete: el proveedor marca el trabajo como finalizado.
+   * Reglas:
+   *  - Solo el proveedor asignado
+   *  - Solo IN_PROGRESS -> DONE
+   */
   async complete(id: number, providerId: number) {
     const r = await this.get(id);
     if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
@@ -266,42 +328,62 @@ export class RequestsService {
     return saved;
   }
 
-  async cancel(id: number, actorId: number) {
+  /**
+   * cancel: cancela un request con **motivo** y validación por **rol**.
+   * Reglas por defecto:
+   *  - CLIENTE puede cancelar: PENDING | OFFERED | ACCEPTED
+   *  - PROVEEDOR puede cancelar: OFFERED | ACCEPTED
+   *  - Nadie puede cancelar DONE
+   * Guarda el motivo en las notas del timeline.
+   */
+  async cancel(
+    id: number,
+    actorId: number,
+    actorRole: UserRole,
+    dto?: CancelRequestDto,
+  ) {
     const r = await this.get(id);
-    const isActor = r.client.id === actorId || r.provider?.id === actorId;
-    if (!isActor) throw new ForbiddenException('Not allowed');
+
+    const isClient = actorRole === UserRole.CLIENT;
+    const isProv = actorRole === UserRole.PROVIDER;
+
+    if (isClient && r.client.id !== actorId) {
+      throw new ForbiddenException('You cannot cancel requests of other clients');
+    }
+    if (isProv && (!r.provider || r.provider.id !== actorId)) {
+      throw new ForbiddenException('You are not the assigned provider');
+    }
     if (r.status === 'DONE') throw new BadRequestException('Cannot cancel DONE');
+
+    const allowClient = new Set<Status>(['PENDING', 'OFFERED', 'ACCEPTED']);
+    const allowProv = new Set<Status>(['OFFERED', 'ACCEPTED']);
+    const can =
+      (isClient && allowClient.has(r.status)) ||
+      (isProv && allowProv.has(r.status));
+
+    if (!can) {
+      throw new BadRequestException(`State ${r.status} is not cancellable for your role`);
+    }
 
     const from: Status = r.status;
     r.status = 'CANCELLED';
-
     const saved = await this.repo.save(r);
 
-    await this.logTransition({ request: saved, actorId, from, to: saved.status });
+    await this.logTransition({
+      request: saved,
+      actorId,
+      from,
+      to: saved.status,
+      notes: dto?.reason ?? null,
+    });
 
     return saved;
   }
 
-  /** Historial (timeline) de un request */
-  async timeline(requestId: number) {
-    return this.trRepo.find({
-      where: { request: { id: requestId } as any },
-      order: { createdAt: 'ASC' },
-      relations: { actor: true },
-      select: {
-        id: true,
-        fromStatus: true,
-        toStatus: true,
-        priceOffered: true,
-        priceAgreed: true,
-        notes: true,
-        createdAt: true,
-        actor: { id: true, email: true, name: true, role: true },
-      },
-    });
-  }
-
-  /** Admin cancela y se registra en timeline */
+  /**
+   * adminCancel: fuerza cancelación por un usuario administrador
+   * y deja rastro en timeline.
+   */
   async adminCancel(id: number, adminUserId: number) {
     const r = await this.get(id);
     const from: Status = r.status;
@@ -319,9 +401,12 @@ export class RequestsService {
     return saved;
   }
 
-  // -------------------- LISTADOS PAGINADOS --------------------
-
-  /** Mis requests como CLIENT */
+  // ---------------------------------------------------------------------------
+  // LISTADOS: CLIENTE / PROVEEDOR / ABIERTOS / MIS SOLICITUDES
+  // ---------------------------------------------------------------------------
+  /**
+   * listByClient: listado paginado de requests del cliente actual.
+   */
   async listByClient(clientId: number, q: ListRequestsQueryDto) {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
@@ -343,7 +428,34 @@ export class RequestsService {
     };
   }
 
-  /** Pedidos abiertos cerca (paginado) */
+  /**
+   * listByProvider: listado paginado de requests asignados al proveedor actual.
+   */
+  async listByProvider(providerUserId: number, q: ListRequestsQueryDto) {
+    const page = Math.max(1, Number(q.page ?? 1));
+    const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
+
+    const where: any = { provider: { id: providerUserId } };
+    if (q.status) where.status = q.status;
+
+    const [rows, total] = await this.repo.findAndCount({
+      where,
+      relations: { client: true, provider: true, serviceType: true },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      items: rows,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  /**
+   * open: pedidos abiertos cerca (paginado) para el proveedor actual.
+   * Soporta sort por 'distance' o 'createdAt' y filtro por serviceTypeId.
+   */
   async open(
     q: {
       lat: number;
@@ -425,35 +537,68 @@ export class RequestsService {
     };
   }
 
-  /** Mis requests como PROVIDER (asignados a mí) */
-  async listByProvider(providerUserId: number, q: ListRequestsQueryDto) {
-    const page = Math.max(1, Number(q.page ?? 1));
-    const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
+  // ---------------------------------------------------------------------------
+  // NUEVA IMPLEMENTACIÓN: "MIS SOLICITUDES" con MineQueryDto
+  // ---------------------------------------------------------------------------
+  /**
+   * listMineByRole: listado “mis solicitudes” reutilizando MineQueryDto.
+   * - as: 'client' | 'provider' (si no viene, se infiere por rol del usuario)
+   * - status: filtro opcional por estado
+   * - page/limit: paginado estándar
+   * Devuelve items “sanitizados” + meta.
+   */
+  async listMineByRole(userId: number, userRole: UserRole, q: MineQueryDto) {
+    const as: 'client' | 'provider' =
+      q.as ?? (userRole === UserRole.PROVIDER ? 'provider' : 'client');
 
-    const where: any = { provider: { id: providerUserId } };
-    if (q.status) where.status = q.status;
+    const qb = this.repo
+      .createQueryBuilder('r')
+      .leftJoinAndSelect('r.serviceType', 'st')
+      .leftJoinAndSelect('r.client', 'cli')
+      .leftJoinAndSelect('r.provider', 'prov');
 
-    const [rows, total] = await this.repo.findAndCount({
-      where,
-      relations: { client: true, provider: true, serviceType: true },
-      order: { createdAt: 'DESC', id: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    if (as === 'client') qb.where('cli.id = :uid', { uid: userId });
+    else qb.where('prov.id = :uid', { uid: userId });
+
+    if (q.status) qb.andWhere('r.status = :st', { st: q.status });
+
+    const page = q.page ?? 1;
+    const limit = q.limit ?? 10;
+
+    qb.orderBy('r.updatedAt', 'DESC').skip((page - 1) * limit).take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
 
     return {
-      items: rows,
+      items: rows.map((r) => ({
+        id: r.id,
+        status: r.status,
+        title: r.title,
+        address: r.address,
+        scheduledAt: r.scheduledAt,
+        priceOffered: r.priceOffered,
+        priceAgreed: r.priceAgreed,
+        serviceType: r.serviceType ? { id: r.serviceType.id, name: r.serviceType.name } : null,
+        client:   r.client   ? { id: r.client.id,   email: r.client.email }   : null,
+        provider: r.provider ? { id: r.provider.id, email: r.provider.email } : null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   }
 
-  // -------------------- LEGADO / AUX --------------------
+  // ---------------------------------------------------------------------------
+  // LEGADO / AUX (se mantienen para compatibilidad con controladores actuales)
+  // ---------------------------------------------------------------------------
 
+  /** LEGACY: listado de mis requests usando ListMyRequestsDto. */
   async listMine(userId: number, q: ListMyRequestsDto) {
     const page = q.page ?? 1;
     const limit = q.limit ?? 20;
 
-    const qb = this.repo.createQueryBuilder('r')
+    const qb = this.repo
+      .createQueryBuilder('r')
       .leftJoinAndSelect('r.client', 'client')
       .leftJoinAndSelect('r.provider', 'provider')
       .leftJoinAndSelect('r.serviceType', 'serviceType');
@@ -466,14 +611,13 @@ export class RequestsService {
 
     if (q.status) qb.andWhere('r.status = :st', { st: q.status });
 
-    qb.orderBy('r.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    qb.orderBy('r.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total, page, limit };
   }
 
+  /** LEGACY: variante con shape de respuesta paginada. */
   async mine({
     userId,
     as,
@@ -503,9 +647,7 @@ export class RequestsService {
       qb.andWhere('r.status = :status', { status });
     }
 
-    qb.orderBy('r.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    qb.orderBy('r.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
 
@@ -520,6 +662,7 @@ export class RequestsService {
     };
   }
 
+  /** LEGACY: resumen de mis requests agrupado por estado. */
   async mineSummary({
     userId,
     as,
@@ -555,5 +698,26 @@ export class RequestsService {
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
     return { ...counts, total };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Consultas rápidas auxiliares (se mantienen)
+  // ---------------------------------------------------------------------------
+  /** LEGACY: lista “mis pedidos como cliente” (ordenado) */
+  findMyClient(clientId: number) {
+    return this.repo.find({
+      where: { client: { id: clientId } },
+      order: { createdAt: 'DESC' },
+      relations: { client: true, provider: true, serviceType: true },
+    });
+  }
+
+  /** LEGACY: lista “mis pedidos como proveedor asignado” (ordenado) */
+  findMyProvider(providerId: number) {
+    return this.repo.find({
+      where: { provider: { id: providerId } },
+      order: { createdAt: 'DESC' },
+      relations: { client: true, provider: true, serviceType: true },
+    });
   }
 }
