@@ -12,17 +12,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET', 'dev-secret'),
+      secretOrKey: config.get<string>('JWT_SECRET') ?? 'dev-secret', // ⬅️ aquí
     });
   }
 
   async validate(payload: { sub: number; email: string; role: string }) {
-    // DEBUG (temporal): para confirmar que el guard dejó pasar el token
     if (process.env.NODE_ENV !== 'production') {
       this.logger.debug(`JWT ok -> sub=${payload.sub} role=${payload.role}`);
     }
-
-    // devolvemos el shape que usa el resto del código
     return { sub: payload.sub, email: payload.email, role: payload.role };
   }
 }

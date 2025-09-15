@@ -85,20 +85,21 @@ export class AuthController {
     return this.users.findById(user.sub);
   }
 
-  // ---------- REFRESH ----------
+   // ---------- REFRESH ----------
   @ApiOperation({ summary: 'Refrescar tokens', description: 'Intercambia un refresh token válido por nuevos tokens.' })
   @ApiBody({ type: RefreshDto })
   @ApiOkResponse({
     description: 'Tokens renovados',
     schema: {
       example: {
-        access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…',
-        refresh_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXRCJ9…',
+        access_token: 'eyJ...access...',
+        refresh_token: 'eyJ...refresh...',
       },
     },
   })
   @ApiBadRequestResponse({ description: 'Body inválido' })
   @ApiUnauthorizedResponse({ description: 'Refresh token inválido o expirado' })
+  @HttpCode(200) // ⬅️ asegura 200 en vez de 201
   @Post('refresh')
   refresh(@Body() body: RefreshDto) {
     return this.auth.refresh(body.refreshToken);
@@ -106,10 +107,7 @@ export class AuthController {
 
   // ---------- LOGOUT ----------
   @ApiOperation({ summary: 'Cerrar sesión', description: 'Invalida el refresh token asociado al usuario.' })
-  @ApiOkResponse({
-    description: 'Logout ok',
-    schema: { example: { success: true } },
-  })
+  @ApiOkResponse({ description: 'Logout ok', schema: { example: { ok: true } } }) // ⬅️ ajustado
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
