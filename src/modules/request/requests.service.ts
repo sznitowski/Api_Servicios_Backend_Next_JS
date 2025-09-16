@@ -46,8 +46,7 @@ export class RequestsService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
 
-    @InjectRepository(User)
-    private readonly notifications: NotificationsService,
+     private readonly notifications: NotificationsService,
   ) { }
 
   // ---------------------------------------------------------------------------
@@ -131,7 +130,8 @@ export class RequestsService {
    */
 
 
-  private async logTransition(args: {
+// Guarda la transición en DB y dispara notificaciones a los destinatarios
+ private async logTransition(args: {
     request: ServiceRequest;
     actorId?: number;
     from: Status;
@@ -150,17 +150,20 @@ export class RequestsService {
       notes: args.notes ?? null,
     });
 
-    // 1) Persistimos la transición
-    const saved = await this.trRepo.save(row);
+    const savedTransition = await this.trRepo.save(row);
 
-    // 2) 🔔 Intentamos notificar; si falla no rompemos el flujo del request
-    try {
-      await this.notifications.notifyTransition(saved, args.request);
-    } catch (e) {
-      // Aquí podrías loguear el error con tu logger (no lanzamos excepción a propósito)
-      // this.logger?.warn?.(`notifyTransition failed: ${String(e)}`);
-    }
+    // 🔁 Re-cargamos el request con relaciones para notificaciones
+    const reqForNotify = await this.repo.findOne({
+      where: { id: args.request.id },
+      relations: { client: true, provider: true },
+    });
+    if (!reqForNotify) return; // no rompemos el flujo si falló
+
+    // ✅ Pasamos actorId explícito (por si la relación actor no viene cargada)
+    await this.notifications.notifyTransition(savedTransition, reqForNotify, args.actorId ?? null);
   }
+
+
 
   /**
    * Historial (timeline) ordenado por fecha ascendente.

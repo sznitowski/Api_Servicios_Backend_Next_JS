@@ -1,7 +1,11 @@
 // src/modules/notifications/notification.entity.ts
 import {
-  Entity, PrimaryGeneratedColumn, ManyToOne, CreateDateColumn,
-  Column, Index
+  Entity,
+  PrimaryGeneratedColumn,
+  ManyToOne,
+  CreateDateColumn,
+  Column,
+  Index,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { ServiceRequest } from '../request/request.entity';
@@ -22,18 +26,19 @@ export class Notification {
   @PrimaryGeneratedColumn()
   id!: number;
 
+  // destinatario de la notificación
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   user!: User;
 
-  // OJO: nullable true + SET NULL para evitar FK conflict si se borra el request
+  // request asociado (puede quedar NULL si se borra el request)
   @ManyToOne(() => ServiceRequest, { nullable: true, onDelete: 'SET NULL' })
   request!: ServiceRequest | null;
 
-  // OJO: nullable true + SET NULL
+  // transición que originó la notificación (puede quedar NULL si se borra)
   @ManyToOne(() => RequestTransition, { nullable: true, onDelete: 'SET NULL' })
   transition!: RequestTransition | null;
 
-  // ✅ Usamos varchar para ser compatible con SQLite en E2E y MySQL en prod
+  // usar varchar para compatibilidad sqlite en tests
   @Column({ type: 'varchar', length: 32 })
   type!: NotificationType;
 
