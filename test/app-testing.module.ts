@@ -8,6 +8,7 @@ import { UsersModule } from '../src/modules/users/users.module';
 import { CatalogModule } from '../src/modules/catalog/catalog.module';
 import { RequestsModule } from '../src/modules/request/requests.module';
 import { ProvidersModule } from '../src/modules/providers/providers.module';
+import { NotificationsModule } from '../src/modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ProvidersModule } from '../src/modules/providers/providers.module';
     CatalogModule,
     RequestsModule,
     ProvidersModule,
+    NotificationsModule
   ],
 })
 export class AppTestingModule {}

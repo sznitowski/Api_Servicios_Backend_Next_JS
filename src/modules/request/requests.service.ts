@@ -20,6 +20,7 @@ import { ListRequestsQueryDto } from './dto/list-requests.query.dto';
 // NUEVOS DTOs reusables
 import { MineQueryDto } from './dto/mine.dto';
 import { CancelRequestDto } from './dto/cancel-request.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Estados válidos para un Request (coinciden con la entidad)
 type Status =
@@ -44,7 +45,10 @@ export class RequestsService {
 
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) {}
+
+    @InjectRepository(User)
+    private readonly notifications: NotificationsService,
+  ) { }
 
   // ---------------------------------------------------------------------------
   // FEED PARA PROVEEDORES
@@ -125,6 +129,8 @@ export class RequestsService {
    * Helper interno para registrar una transición en el timeline.
    * Guarda: from -> to, actor, precios (si aplica) y notas (motivo libre).
    */
+
+
   private async logTransition(args: {
     request: ServiceRequest;
     actorId?: number;
@@ -143,7 +149,17 @@ export class RequestsService {
       priceAgreed: args.priceAgreed ?? null,
       notes: args.notes ?? null,
     });
-    await this.trRepo.save(row);
+
+    // 1) Persistimos la transición
+    const saved = await this.trRepo.save(row);
+
+    // 2) 🔔 Intentamos notificar; si falla no rompemos el flujo del request
+    try {
+      await this.notifications.notifyTransition(saved, args.request);
+    } catch (e) {
+      // Aquí podrías loguear el error con tu logger (no lanzamos excepción a propósito)
+      // this.logger?.warn?.(`notifyTransition failed: ${String(e)}`);
+    }
   }
 
   /**
@@ -579,7 +595,7 @@ export class RequestsService {
         priceOffered: r.priceOffered,
         priceAgreed: r.priceAgreed,
         serviceType: r.serviceType ? { id: r.serviceType.id, name: r.serviceType.name } : null,
-        client:   r.client   ? { id: r.client.id,   email: r.client.email }   : null,
+        client: r.client ? { id: r.client.id, email: r.client.email } : null,
         provider: r.provider ? { id: r.provider.id, email: r.provider.email } : null,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
