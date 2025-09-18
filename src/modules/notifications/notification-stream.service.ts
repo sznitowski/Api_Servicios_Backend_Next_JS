@@ -1,21 +1,24 @@
 // src/modules/notifications/notification-stream.service.ts
 import { Injectable } from '@nestjs/common';
-import { ReplaySubject } from 'rxjs';
+import { Subject, Observable } from 'rxjs';
 
 @Injectable()
 export class NotificationStreamService {
-  private channels = new Map<number, ReplaySubject<any>>();
+  private channels = new Map<number, Subject<any>>();
 
-  getChannel(userId: number): ReplaySubject<any> {
-    let ch = this.channels.get(userId);
-    if (!ch) {
-      ch = new ReplaySubject<any>(1); // cachea el último evento
-      this.channels.set(userId, ch);
+  // Obtiene (o crea) el canal del usuario
+  getChannel(userId: number): Observable<any> {
+    if (!this.channels.has(userId)) {
+      this.channels.set(userId, new Subject<any>());
     }
-    return ch;
+    return this.channels.get(userId)!.asObservable();
   }
 
+  // Publica un payload en el canal del usuario
   publish(userId: number, payload: any) {
-    this.getChannel(userId).next(payload);
+    if (!this.channels.has(userId)) {
+      this.channels.set(userId, new Subject<any>());
+    }
+    this.channels.get(userId)!.next(payload);
   }
 }

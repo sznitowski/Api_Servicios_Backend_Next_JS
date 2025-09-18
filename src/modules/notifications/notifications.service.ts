@@ -1,11 +1,14 @@
 // src/modules/notifications/notifications.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+
 import { Notification, NotificationType } from './notification.entity';
+import { NotificationPreferences } from './notification-preferences.entity';
 import { RequestTransition } from '../request/request-transition.entity';
 import { ServiceRequest } from '../request/request.entity';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { UpdateNotificationPrefsDto } from './dto/update-notification-prefs.dto';
 import { NotificationStreamService } from './notification-stream.service';
 
 @Injectable()
@@ -13,63 +16,118 @@ export class NotificationsService {
   constructor(
     @InjectRepository(Notification)
     private readonly repo: Repository<Notification>,
-    private readonly stream: NotificationStreamService, // <- inyectamos el stream
+    @InjectRepository(NotificationPreferences)
+    private readonly prefsRepo: Repository<NotificationPreferences>,
+    private readonly stream: NotificationStreamService,
   ) {}
 
+  // -----------------------------------------------------------
+  // PREFERENCIAS
+  // -----------------------------------------------------------
+
+  // Obtiene las preferencias del usuario (si no existen, devuelve por defecto todas habilitadas)
+  async getPrefs(userId: number) {
+    const existing = await this.prefsRepo.findOne({ where: { user: { id: userId } as any } });
+    if (!existing) {
+      return { userId, disabledTypes: [] as NotificationType[] };
+    }
+    const disabled = this.parseDisabled(existing.disabledTypesJson);
+    return { userId, disabledTypes: disabled };
+  }
+
+  // Actualiza preferencias: persiste el array de tipos deshabilitados
+  async updatePrefs(userId: number, dto: UpdateNotificationPrefsDto) {
+    const disabled = dto.disabledTypes ?? [];
+    let row = await this.prefsRepo.findOne({ where: { user: { id: userId } as any } });
+    if (!row) {
+      row = this.prefsRepo.create({
+        user: { id: userId } as any,
+        disabledTypesJson: JSON.stringify(disabled),
+      });
+    } else {
+      row.disabledTypesJson = JSON.stringify(disabled);
+    }
+    await this.prefsRepo.save(row);
+    return { ok: true, disabledTypes: disabled };
+  }
+
+  private parseDisabled(json?: string | null): NotificationType[] {
+    if (!json) return [];
+    try { return JSON.parse(json) ?? []; } catch { return []; }
+  }
+
+  // -----------------------------------------------------------
+  // NOTIFY (aplica preferencias)
+  // -----------------------------------------------------------
+
   // Crea notificaciones a partir de una transición de Request.
-  // - Si actúa el PROVEEDOR -> notifica al CLIENTE.
-  // - Si actúa el CLIENTE   -> notifica al PROVEEDOR (si existe).
-  // - Si actúa un tercero (admin) -> notifica a ambos (si existen).
+  // Aplica preferencias del destinatario: si el tipo está deshabilitado, no se crea.
   async notifyTransition(
     transition: RequestTransition,
     req: ServiceRequest,
     actorIdExplicit?: number | null,
   ): Promise<void> {
     const to = transition.toStatus;
-    const type =
-      to === 'CANCELLED' && transition.notes === 'Admin cancel'
+    const type: NotificationType =
+      (to === 'CANCELLED' && transition.notes === 'Admin cancel')
         ? NotificationType.ADMIN_CANCEL
         : (to as NotificationType);
 
-    // actor preferente: parámetro explícito > relación en transición
+    // Determinar targets en base a quién actuó
     const actorId = actorIdExplicit ?? transition.actor?.id ?? null;
-
     const targets = new Set<number>();
     if (actorId && req.client?.id === actorId) {
       if (req.provider?.id) targets.add(req.provider.id);
     } else if (actorId && req.provider?.id === actorId) {
-      targets.add(req.client.id);
+      if (req.client?.id) targets.add(req.client.id);
     } else {
       if (req.client?.id) targets.add(req.client.id);
       if (req.provider?.id) targets.add(req.provider.id);
     }
     if (targets.size === 0) return;
 
-    const message = this.buildMessage(type, req);
+    // Cargar preferencias de todos los destinatarios de una sola vez
+    const targetIds = [...targets];
+    const prefs = await this.prefsRepo.find({
+      where: { user: { id: In(targetIds) } as any },
+      relations: { user: true },
+      select: { id: true, disabledTypesJson: true, user: { id: true } },
+    });
 
-    // Creamos y guardamos
-    const rows = [...targets].map((uid) =>
-      this.repo.create({
+    const disabledByUser = new Map<number, Set<NotificationType>>();
+    for (const p of prefs) {
+      const list = this.parseDisabled(p.disabledTypesJson);
+      disabledByUser.set(p.user.id, new Set(list));
+    }
+
+    // Crear rows sólo para los que NO lo tienen deshabilitado
+    const message = this.buildMessage(type, req);
+    const rows: Notification[] = [];
+
+    for (const uid of targetIds) {
+      const userDisabled = disabledByUser.get(uid);
+      if (userDisabled?.has(type)) continue; // filtrado por preferencia
+      rows.push(this.repo.create({
         user: { id: uid } as any,
         request: { id: req.id } as any,
         transition: { id: transition.id } as any,
         type,
         message,
         seenAt: null,
-      }),
-    );
+      }));
+    }
+
+    if (!rows.length) return;
+
     const saved = await this.repo.save(rows);
 
-    // Empujamos al stream SSE (uno por usuario destino)
+    // Empujar por stream (opcional)
     for (const n of saved) {
       const payload = {
         id: n.id,
         type: n.type,
         message: n.message,
-        requestId: req.id,
-        requestTitle: req.title,
-        fromStatus: transition.fromStatus,
-        toStatus: transition.toStatus,
+        requestId: (n.request as any)?.id ?? req.id,
         createdAt: n.createdAt,
       };
       this.stream.publish((n.user as any).id, payload);
@@ -89,11 +147,14 @@ export class NotificationsService {
     }
   }
 
-  // Lista paginada de notificaciones del usuario
+  // -----------------------------------------------------------
+  // LISTADO / BADGE / READ
+  // -----------------------------------------------------------
+
+  // Lista paginada de notificaciones del usuario actual (si unseen=true, sólo no leídas)
   async listForUser(userId: number, q: ListNotificationsDto) {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.max(1, Math.min(Number(q.limit ?? 20), 50));
-
     const where: any = { user: { id: userId } };
     if (q.unseen) where.seenAt = IsNull();
 
@@ -104,23 +165,16 @@ export class NotificationsService {
       skip: (page - 1) * limit,
       take: limit,
       select: {
-        id: true,
-        type: true,
-        message: true,
-        seenAt: true,
-        createdAt: true,
+        id: true, type: true, message: true, seenAt: true, createdAt: true,
         request: { id: true, title: true, status: true },
         transition: { id: true, fromStatus: true, toStatus: true, createdAt: true },
       },
     });
 
-    return {
-      items,
-      meta: { page, limit, total, pages: Math.ceil(total / limit) },
-    };
+    return { items, meta: { page, limit, total, pages: Math.ceil(total / limit) } };
   }
 
-  // Marcar UNA como leída
+  // Marcar una notificación como leída
   async markRead(id: number, userId: number) {
     const row = await this.repo.findOne({ where: { id, user: { id: userId } as any } });
     if (!row) throw new NotFoundException('Notification not found');
@@ -131,7 +185,7 @@ export class NotificationsService {
     return { ok: true };
   }
 
-  // Marcar TODAS como leídas
+  // Marcar todas como leídas
   async markAll(userId: number) {
     await this.repo.update(
       { user: { id: userId } as any, seenAt: IsNull() },
@@ -140,16 +194,9 @@ export class NotificationsService {
     return { ok: true };
   }
 
-  // Badge: cantidad de no leídas
-  async countUnseen(userId: number) {
-    const unseen = await this.repo.count({
-      where: { user: { id: userId } as any, seenAt: IsNull() },
-    });
-    return { total: unseen };
-  }
-
-  // Alias para no romper tu controller actual (opcional)
-  unseenCount(userId: number) {
-    return this.countUnseen(userId);
+  // Badge para UI: cantidad de no leídas
+  async unseenCount(userId: number) {
+    const total = await this.repo.count({ where: { user: { id: userId } as any, seenAt: IsNull() } });
+    return { total };
   }
 }

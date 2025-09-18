@@ -17,15 +17,15 @@ import { NotificationsModule } from '../src/modules/notifications/notifications.
       envFilePath: ['.env.test', '.env'], // primero toma .env.test
     }),
     TypeOrmModule.forRoot({
-      type: 'mysql',
+      type: 'mysql',                                   // para e2e sobre MySQL
       host: process.env.DB_HOST ?? '127.0.0.1',
       port: Number(process.env.DB_PORT ?? 3306),
       username: process.env.DB_USER ?? 'root',
       password: process.env.DB_PASS ?? '',
       database: process.env.DB_NAME ?? 'services_test',
-      autoLoadEntities: true,
-      synchronize: true,   
-      dropSchema: true,     
+      autoLoadEntities: true,                          // carga entidades de los módulos
+      synchronize: true,                               // en testing: crea esquema
+      dropSchema: true,                                // resetea en cada suite
       logging: false,
     }),
     UsersModule,
@@ -33,7 +33,7 @@ import { NotificationsModule } from '../src/modules/notifications/notifications.
     CatalogModule,
     RequestsModule,
     ProvidersModule,
-    NotificationsModule
+    NotificationsModule,                            
   ],
 })
 export class AppTestingModule {}
