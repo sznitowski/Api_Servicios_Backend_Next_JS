@@ -6,31 +6,32 @@ import { Notification, NotificationType } from './notification.entity';
 import { RequestTransition } from '../request/request-transition.entity';
 import { ServiceRequest } from '../request/request.entity';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { NotificationStreamService } from './notification-stream.service';
 
 @Injectable()
 export class NotificationsService {
-  createFromTransition: any;
   constructor(
     @InjectRepository(Notification)
     private readonly repo: Repository<Notification>,
+    private readonly stream: NotificationStreamService, // <- inyectamos el stream
   ) {}
 
   // Crea notificaciones a partir de una transición de Request.
   // - Si actúa el PROVEEDOR -> notifica al CLIENTE.
   // - Si actúa el CLIENTE   -> notifica al PROVEEDOR (si existe).
   // - Si actúa un tercero (admin) -> notifica a ambos (si existen).
- async notifyTransition(
+  async notifyTransition(
     transition: RequestTransition,
     req: ServiceRequest,
-    actorIdExplicit?: number | null,     // 👈 nuevo parámetro
+    actorIdExplicit?: number | null,
   ): Promise<void> {
     const to = transition.toStatus;
     const type =
-      (to === 'CANCELLED' && transition.notes === 'Admin cancel')
+      to === 'CANCELLED' && transition.notes === 'Admin cancel'
         ? NotificationType.ADMIN_CANCEL
         : (to as NotificationType);
 
-    // Preferimos el actorId explícito; si no, el de la relación (por si vino cargada)
+    // actor preferente: parámetro explícito > relación en transición
     const actorId = actorIdExplicit ?? transition.actor?.id ?? null;
 
     const targets = new Set<number>();
@@ -39,15 +40,14 @@ export class NotificationsService {
     } else if (actorId && req.provider?.id === actorId) {
       targets.add(req.client.id);
     } else {
-      // actor desconocido/externo -> ambos si existen
       if (req.client?.id) targets.add(req.client.id);
       if (req.provider?.id) targets.add(req.provider.id);
     }
-
-    if (targets.size === 0) return; // nada que notificar
+    if (targets.size === 0) return;
 
     const message = this.buildMessage(type, req);
 
+    // Creamos y guardamos
     const rows = [...targets].map((uid) =>
       this.repo.create({
         user: { id: uid } as any,
@@ -58,32 +58,38 @@ export class NotificationsService {
         seenAt: null,
       }),
     );
+    const saved = await this.repo.save(rows);
 
-    await this.repo.save(rows);
+    // Empujamos al stream SSE (uno por usuario destino)
+    for (const n of saved) {
+      const payload = {
+        id: n.id,
+        type: n.type,
+        message: n.message,
+        requestId: req.id,
+        requestTitle: req.title,
+        fromStatus: transition.fromStatus,
+        toStatus: transition.toStatus,
+        createdAt: n.createdAt,
+      };
+      this.stream.publish((n.user as any).id, payload);
+    }
   }
 
   // Mensaje simple (luego se puede i18n)
   private buildMessage(type: NotificationType, req: ServiceRequest): string {
     switch (type) {
-      case NotificationType.OFFERED:
-        return `Nueva oferta en "${req.title}"`;
-      case NotificationType.ACCEPTED:
-        return `Se aceptó la oferta en "${req.title}"`;
-      case NotificationType.IN_PROGRESS:
-        return `Trabajo iniciado en "${req.title}"`;
-      case NotificationType.DONE:
-        return `Trabajo completado en "${req.title}"`;
-      case NotificationType.CANCELLED:
-        return `Trabajo cancelado en "${req.title}"`;
-      case NotificationType.ADMIN_CANCEL:
-        return `Un administrador canceló "${req.title}"`;
-      default:
-        return `Actualización en "${req.title}"`;
+      case NotificationType.OFFERED: return `Nueva oferta en "${req.title}"`;
+      case NotificationType.ACCEPTED: return `Se aceptó la oferta en "${req.title}"`;
+      case NotificationType.IN_PROGRESS: return `Trabajo iniciado en "${req.title}"`;
+      case NotificationType.DONE: return `Trabajo completado en "${req.title}"`;
+      case NotificationType.CANCELLED: return `Trabajo cancelado en "${req.title}"`;
+      case NotificationType.ADMIN_CANCEL: return `Un administrador canceló "${req.title}"`;
+      default: return `Actualización en "${req.title}"`;
     }
   }
 
-  // Lista paginada de notificaciones del usuario actual.
-  // Si unseen=true, sólo trae no leídas.
+  // Lista paginada de notificaciones del usuario
   async listForUser(userId: number, q: ListNotificationsDto) {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.max(1, Math.min(Number(q.limit ?? 20), 50));
@@ -104,12 +110,7 @@ export class NotificationsService {
         seenAt: true,
         createdAt: true,
         request: { id: true, title: true, status: true },
-        transition: {
-          id: true,
-          fromStatus: true,
-          toStatus: true,
-          createdAt: true,
-        },
+        transition: { id: true, fromStatus: true, toStatus: true, createdAt: true },
       },
     });
 
@@ -119,11 +120,9 @@ export class NotificationsService {
     };
   }
 
-  // Marca UNA notificación como leída (si pertenece al usuario).
+  // Marcar UNA como leída
   async markRead(id: number, userId: number) {
-    const row = await this.repo.findOne({
-      where: { id, user: { id: userId } as any },
-    });
+    const row = await this.repo.findOne({ where: { id, user: { id: userId } as any } });
     if (!row) throw new NotFoundException('Notification not found');
     if (!row.seenAt) {
       row.seenAt = new Date();
@@ -132,7 +131,7 @@ export class NotificationsService {
     return { ok: true };
   }
 
-  // Marca TODAS como leídas (compatibilidad MySQL/SQLite, sin tocar nombres de columnas).
+  // Marcar TODAS como leídas
   async markAll(userId: number) {
     await this.repo.update(
       { user: { id: userId } as any, seenAt: IsNull() },
@@ -141,11 +140,16 @@ export class NotificationsService {
     return { ok: true };
   }
 
-  // (Opcional) Badge para UI: cantidad de no leídas.
+  // Badge: cantidad de no leídas
   async countUnseen(userId: number) {
     const unseen = await this.repo.count({
       where: { user: { id: userId } as any, seenAt: IsNull() },
     });
-    return { unseen };
+    return { total: unseen };
+  }
+
+  // Alias para no romper tu controller actual (opcional)
+  unseenCount(userId: number) {
+    return this.countUnseen(userId);
   }
 }

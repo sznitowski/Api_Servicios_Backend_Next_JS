@@ -1,42 +1,31 @@
-// src/modules/notifications/notifications.controller.ts
 import {
-  Controller,
-  Get,
-  Post,
-  Param,
-  ParseIntPipe,
-  Query,
-  Req,
-  UseGuards,
+  Controller, Get, Post, Param, ParseIntPipe, Query, Req, UseGuards, Sse,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import {
-  ApiBearerAuth,
-  ApiOkResponse,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
-
 import { NotificationsService } from './notifications.service';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
+import {
+  ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags, ApiQuery,
+} from '@nestjs/swagger';
+import { NotificationStreamService } from './notification-stream.service';
+import { map, merge, interval } from 'rxjs';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'))
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly service: NotificationsService) {}
+  constructor(
+    private readonly service: NotificationsService,
+    private readonly streams: NotificationStreamService,
+  ) {}
 
-  // helper para extraer el userId del token (acepta {id} o {sub})
+  // Helper: userId desde el token (id o sub)
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
 
   // GET /notifications/me?unseen=true&page=1&limit=20
-  // Lista paginada de notificaciones del usuario actual.
-  // Si unseen=true, devuelve sólo no leídas.
   @ApiOperation({ summary: 'Listar mis notificaciones' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({ name: 'unseen', required: false, type: Boolean })
@@ -44,12 +33,29 @@ export class NotificationsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Get('me')
   listMine(@Req() req: any, @Query() q: ListNotificationsDto) {
-    // el DTO ya normaliza unseen/page/limit
     return this.service.listForUser(this.uid(req), q);
   }
 
+  // GET /notifications/me/count  -> { total: number }
+  @ApiOperation({ summary: 'Cantidad de notificaciones no leídas' })
+  @ApiOkResponse({ description: 'Contador de no leídas' })
+  @Get('me/count')
+  unseenCount(@Req() req: any) {
+    return this.service.unseenCount(this.uid(req));
+  }
+
+  // SSE /notifications/stream  -> eventos en vivo (Content-Type: text/event-stream)
+  // Devuelve eventos con forma { data: {...} }. Incluimos ping cada 25s para mantener vivo el stream.
+  @ApiOperation({ summary: 'Stream SSE de notificaciones en tiempo real' })
+  @Sse('stream')
+  stream(@Req() req: any) {
+    const userId = this.uid(req);
+    const user$ = this.streams.getChannel(userId).asObservable().pipe(map((data) => ({ data })));
+    const ping$ = interval(25000).pipe(map(() => ({ event: 'ping', data: 'keepalive' })));
+    return merge(user$, ping$);
+  }
+
   // POST /notifications/:id/read
-  // Marca como leída una notificación específica si pertenece al usuario.
   @ApiOperation({ summary: 'Marcar una notificación como leída' })
   @ApiOkResponse({ description: 'OK' })
   @ApiParam({ name: 'id', type: Number })
@@ -59,7 +65,6 @@ export class NotificationsController {
   }
 
   // POST /notifications/read-all
-  // Marca como leídas todas las notificaciones del usuario actual.
   @ApiOperation({ summary: 'Marcar todas las notificaciones como leídas' })
   @ApiOkResponse({ description: 'OK' })
   @Post('read-all')

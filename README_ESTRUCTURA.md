@@ -205,3 +205,89 @@ Testing estructura
 ├─ docker-compose.yml         # (db para dev)
 ├─ package.json
 └─ tsconfig.json
+
+
+
+
+
+
+Estado actual (check rápido)
+
+✅ Auth: login / refresh / logout con refresh hashado y rotación. Guards y strategy OK.
+
+✅ Users + Addresses: CRUD de direcciones con isDefault consistente. Tests e2e.
+
+✅ Catálogo: categorías y tipos de servicio (con traducciones). Tests e2e.
+
+✅ Providers: perfil + vinculación a service types. Tests e2e.
+
+✅ Requests: lifecycle completo (claim → accept → start → complete → cancel), timeline auditable, reglas de rol, listados “me” (client/provider), feed y open con Haversine + paginación. Tests e2e.
+
+✅ Ratings: calificación post-DONE. Tests e2e.
+
+✅ Notifications: entidad, servicio, controller, integración con transiciones, listar/leer/leer-todas, tests e2e.
+
+✅ Migrations: esquema bajo control (MySQL), scripts de package y seed funcionando.
+
+✅ Swagger: endpoints documentados con DTOs y ejemplos.
+
+✅ Scripts: e2e:full corre migraciones + seed + e2e y queda todo verde.
+
+Porcentaje de avance
+
+~80% del backend MVP.
+La base funcional está completa y probada end-to-end; falta pulir tiempo real, hardening y extras de producción.
+
+Qué falta (backlog priorizado)
+
+Alta prioridad (lo próximo a encarar)
+
+Tiempo real de notificaciones
+WebSocket Gateway o SSE (/notifications/stream) y emitir en notifyTransition.
+
+Contadores rápidos
+Endpoint GET /notifications/me/count (unseen) + test e2e.
+
+Seguridad & hardening
+
+@nestjs/throttler (rate limit en auth y requests).
+
+helmet, CORS fino, saneo de inputs.
+
+CI/CD
+Workflow en GitHub Actions: npm ci → lint → e2e:full → build.
+Chequeo de migraciones (“no pending”) en CI.
+
+Media prioridad
+5. Adapters de entrega (feature flags): email/push para algunos tipos de notificación.
+6. Observabilidad
+Logs con nestjs-pino (correlationId), endpoint /health, métricas básicas.
+7. Índices y performance
+Índices en service_requests(status, createdAt), request_transitions(request_id, createdAt), provider_service_types(provider_id, service_type_id).
+Evaluar geospatial index si migramos a PostGIS o MySQL con SRID.
+8. Más tests
+
+Permisos de notifications (no leer de otros).
+
+Feed/open: orden por distancia vs createdAt.
+
+Admin-cancel con/ sin provider asignado.
+
+Reintentos de refresh y revocación (re-use detection).
+
+i18n de mensajes de notificación.
+
+Baja prioridad / extras de producto
+10. Adjuntos en requests (imágenes) + storage (S3).
+11. Disponibilidad de proveedores (agenda) y ventanas horarias.
+12. Versionado de API (/v1) y políticas de deprecación.
+13. Recupero de contraseña y verificación de email.
+14. Docker/Compose para dev/prod.
+
+Mañana: plan en 3 pasos
+
+GET /notifications/me/count + test e2e.
+
+Esqueleto de SSE para notificaciones + emitir desde NotificationsService.
+
+Integrar helmet + CORS + @nestjs/throttler con límites sensatos y tests básicos.
