@@ -10,8 +10,9 @@ import {
   Query,
   Req,
   UseGuards,
-  Sse,              // <- para Server-Sent Events
-  MessageEvent,     // <- tipado del evento SSE
+  Sse,
+  MessageEvent,
+  Delete,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -22,8 +23,9 @@ import {
   ApiQuery,
   ApiTags,
   ApiBody,
+  ApiNoContentResponse,
 } from '@nestjs/swagger';
-import { interval, merge, map } from 'rxjs'; // <- keepalive y mapeo de eventos
+import { Observable, interval, merge, map } from 'rxjs';
 
 import { NotificationsService } from './notifications.service';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
@@ -38,7 +40,7 @@ export class NotificationsController {
   constructor(
     private readonly service: NotificationsService,
     private readonly streams: NotificationStreamService,
-  ) {}
+  ) { }
 
   // Helper: userId desde el token
   private uid(req: any): number {
@@ -99,23 +101,37 @@ export class NotificationsController {
   }
 
   // GET /notifications/stream -> SSE en tiempo real
-  // Devuelve eventos de la forma { data: {...} } y un 'ping' cada 25s como keepalive.
   @ApiOperation({ summary: 'Stream SSE de notificaciones en tiempo real' })
+  @ApiNoContentResponse({ description: 'SSE stream' })
   @Sse('stream')
-  stream(@Req() req: any): any /* Observable<MessageEvent> */ {
+  stream(@Req() req: any): Observable<MessageEvent> {
     const userId = this.uid(req);
 
-    // Canal del usuario: emite payloads publicados por el servicio
-    const user$ = this.streams
-      .getChannel(userId)
-      .pipe(map((data) => ({ data } as MessageEvent)));
+    const user$ = (this.streams.getChannel(userId) as any).pipe(
+      map((data: any) => ({ data } as MessageEvent)),
+    );
 
-    // Keepalive para proxies (cada 25s)
     const ping$ = interval(25_000).pipe(
       map(() => ({ event: 'ping', data: 'keepalive' } as MessageEvent)),
     );
 
-    // Merge de eventos reales + pings
-    return merge(user$, ping$);
+    return merge(user$, ping$) as Observable<MessageEvent>;
+  }
+
+  // DELETE /notifications/:id -> borra una notificación propia
+  @ApiOperation({ summary: 'Borrar una notificación' })
+  @ApiOkResponse({ description: 'Eliminada' })
+  @ApiParam({ name: 'id', type: Number })
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.service.removeOne(id, this.uid(req));
+  }
+
+  // POST /notifications/clear-read -> borra todas las leídas
+  @ApiOperation({ summary: 'Borrar todas las notificaciones leídas' })
+  @ApiOkResponse({ description: 'OK' })
+  @Post('clear-read')
+  clearRead(@Req() req: any) {
+    return this.service.clearRead(this.uid(req));
   }
 }

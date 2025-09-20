@@ -1,7 +1,7 @@
 // src/modules/notifications/notifications.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { Not, In, IsNull, Repository } from 'typeorm';
 
 import { Notification, NotificationType } from './notification.entity';
 import { NotificationPreferences } from './notification-preferences.entity';
@@ -19,7 +19,7 @@ export class NotificationsService {
     @InjectRepository(NotificationPreferences)
     private readonly prefsRepo: Repository<NotificationPreferences>,
     private readonly stream: NotificationStreamService,
-  ) {}
+  ) { }
 
   // -----------------------------------------------------------
   // PREFERENCIAS
@@ -199,4 +199,32 @@ export class NotificationsService {
     const total = await this.repo.count({ where: { user: { id: userId } as any, seenAt: IsNull() } });
     return { total };
   }
+
+  // Borra UNA notificación si pertenece al usuario
+  async removeOne(id: number, userId: number) {
+    // // buscamos garantizando ownership
+    const row = await this.repo.findOne({ where: { id, user: { id: userId } as any } });
+    if (!row) throw new NotFoundException('Notification not found');
+
+    await this.repo.delete({ id });
+    return { ok: true, deletedId: id };
+  }
+
+  // Borra TODAS las notificaciones LEÍDAS del usuario
+  async clearRead(userId: number) {
+    // 1) Busco ids de las leídas para ese usuario
+    const rows = await this.repo.find({
+      select: { id: true },
+      where: { user: { id: userId } as any, seenAt: Not(IsNull()) },
+    });
+
+    if (!rows.length) return { ok: true, deleted: 0 };
+
+    // 2) Borro por ids (DB–agnóstico)
+    const ids = rows.map(r => r.id);
+    await this.repo.delete(ids);
+
+    return { ok: true, deleted: ids.length };
+  }
+
 }
