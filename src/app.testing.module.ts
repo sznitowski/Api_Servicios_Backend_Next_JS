@@ -1,155 +1,184 @@
 // src/app.testing.module.ts
 import { Module, OnModuleInit } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { TypeOrmModule, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, DeepPartial } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 
 import { User, UserRole } from './modules/users/user.entity';
 
-// IMPORTA módulos de features, NO AppModule
+// IMPORTAR módulos de features usados por los e2e (NO AppModule)
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { RequestsModule } from './modules/request/requests.module';
+import { ProvidersModule } from './modules/providers/providers.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env.test', '.env'],
+    }),
     TypeOrmModule.forRoot({
       type: 'sqlite',
       database: ':memory:',
-      dropSchema: true,
-      synchronize: false,
+      dropSchema: true,      // limpia en cada corrida de e2e
+      synchronize: true,     // crea el esquema automáticamente
       autoLoadEntities: true,
       logging: false,
     }),
-    // features que exponen endpoints usados por los e2e
     AuthModule,
     UsersModule,
     CatalogModule,
     RequestsModule,
+    ProvidersModule,
+    NotificationsModule,
   ],
 })
 export class AppTestingModule implements OnModuleInit {
-  constructor(@InjectDataSource() private readonly ds: DataSource) { }
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
 
   async onModuleInit() {
-    // ---- Seed: users ----
+    // ---------- Seed: usuarios que usan los tests ----------
     const userRepo = this.ds.getRepository(User);
-    const ensureUser = async (email: string, role: UserRole) => {
+    const passHash = await bcrypt.hash('123456', 10);
+
+    const emails: Array<{ email: string; role: UserRole }> = [
+      { email: 'prov@demo.com',      role: UserRole.PROVIDER },
+      { email: 'provider1@demo.com', role: UserRole.PROVIDER },
+      { email: 'client2@demo.com',   role: UserRole.CLIENT   },
+      { email: 'test@demo.com',      role: UserRole.CLIENT   },
+    ];
+
+    for (const { email, role } of emails) {
       let u = await userRepo.findOne({ where: { email } });
       if (!u) {
-        u = userRepo.create({
+        const obj: DeepPartial<User> = {
           email,
           name: email.split('@')[0],
-          password: await bcrypt.hash('123456', 10),
+          password: passHash,
           role,
-          active: true,
-        });
+          active: true, // campo real en la entidad
+        };
+        u = userRepo.create(obj);
+        await userRepo.save(u);
+      } else {
+        (u as any).active = true;
+        if (!u.password) u.password = passHash;
         await userRepo.save(u);
       }
-      return u;
-    };
-
-    const cli = await ensureUser('test@demo.com', UserRole.CLIENT);
-    const prov = await ensureUser('prov@demo.com', UserRole.PROVIDER);
-
-    // ---- Seed: service type (y categoría) ----
-    let stRow = await this.ds.query(`SELECT id FROM service_types LIMIT 1`);
-    let serviceTypeId: number | undefined = stRow?.[0]?.id;
-
-    if (!serviceTypeId) {
-      // categoría
-      const cat = await this.ds.query(
-        `INSERT INTO categories (name, active, createdAt, updatedAt)
-         VALUES (?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        ['General'],
-      );
-      const categoryId = cat.lastID ?? cat.insertId;
-
-      const st = await this.ds.query(
-        `INSERT INTO service_types (name, category_id, active, createdAt, updatedAt)
-         VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        ['Mudanza', categoryId],
-      );
-      serviceTypeId = st.lastID ?? st.insertId;
     }
 
-    // ---- Seed: provider_profile (si existe la tabla) ----
-    let providerProfileId: number | undefined;
+    // Refuerzo por SQL directo por si la columna en DB se llama isActive
     try {
       await this.ds.query(
-        `INSERT INTO provider_profiles (user_id, createdAt, updatedAt)
-         VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [prov.id],
+        `UPDATE users SET isActive=1 WHERE email IN (?, ?, ?, ?)`,
+        emails.map(e => e.email),
       );
-    } catch (_) {
-      // la tabla puede no existir en tu esquema -> no es error
-    }
-
+    } catch { /* si no existe la columna, seguimos */ }
     try {
-      const pr: any[] = await this.ds.query(
-        `SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`,
-        [prov.id],
+      await this.ds.query(
+        `UPDATE users SET active=1 WHERE email IN (?, ?, ?, ?)`,
+        emails.map(e => e.email),
       );
-      providerProfileId = pr?.[0]?.id;
-    } catch (_) {
-      /* si no existe la tabla, seguimos */
+    } catch { /* idem */ }
+
+    // ---------- Seed: categoría + service type (mínimo) ----------
+    let serviceTypeId: number | undefined;
+    try {
+      const stRow: any[] = await this.ds.query(`SELECT id FROM service_types LIMIT 1`);
+      serviceTypeId = stRow?.[0]?.id;
+    } catch { /* si no existe la tabla, lo creará synchronize */ }
+
+    if (!serviceTypeId) {
+      try {
+        const cat = await this.ds.query(
+          `INSERT INTO categories (name, active, createdAt, updatedAt)
+           VALUES (?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          ['General'],
+        );
+        const categoryId = (cat as any).lastID ?? (cat as any).insertId;
+
+        const st = await this.ds.query(
+          `INSERT INTO service_types (name, category_id, active, createdAt, updatedAt)
+           VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          ['Mudanza', categoryId],
+        );
+        serviceTypeId = (st as any).lastID ?? (st as any).insertId;
+      } catch { /* si el módulo usa otras tablas, no bloquea */ }
     }
 
-    // ---- Seed: vínculo proveedor ↔ service type en la tabla puente real (SQLite) ----
-    // Detectar columnas existentes
-    const cols: Array<{ name: string }> = await this.ds.query(
-      `PRAGMA table_info('provider_service_types')`,
-    ).catch(() => []);
+    // ---------- Seed: provider_profile (si existe) ----------
+    let providerId: number | undefined;
+    try {
+      const prov = await userRepo.findOne({ where: { email: 'prov@demo.com' } });
+      providerId = prov?.id;
+    } catch {}
 
-    if (cols?.length) {
-      const names = cols.map(c => c.name);
-      const has = (n: string) => names.includes(n);
+    let providerProfileId: number | undefined;
+    if (providerId != null) {
+      try {
+        await this.ds.query(
+          `INSERT INTO provider_profiles (user_id, createdAt, updatedAt)
+           VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [providerId],
+        );
+      } catch {}
+      try {
+        const pr: any[] = await this.ds.query(
+          `SELECT id FROM provider_profiles WHERE user_id = ? LIMIT 1`,
+          [providerId],
+        );
+        providerProfileId = pr?.[0]?.id;
+      } catch {}
+    }
 
-      // mapeo flexible de columnas
-      const payload: Record<string, any> = {};
+    // ---------- Seed: vínculo provider ↔ service_type (si existe tabla puente) ----------
+    try {
+      const cols: Array<{ name: string }> =
+        await this.ds.query(`PRAGMA table_info('provider_service_types')`).catch(() => []);
 
-      // columna a usar para provider/profile
-      if (providerProfileId != null) {
-        if (has('provider_profile_id')) payload['provider_profile_id'] = providerProfileId;
-        else if (has('providerProfileId')) payload['providerProfileId'] = providerProfileId;
-      } else {
-        if (has('provider_id')) payload['provider_id'] = prov.id;
-        else if (has('providerId')) payload['providerId'] = prov.id;
-      }
+      if (cols?.length && serviceTypeId != null) {
+        const names = cols.map(c => c.name);
+        const has = (n: string) => names.includes(n);
 
-      // columna a usar para service type
-      if (has('service_type_id')) payload['service_type_id'] = serviceTypeId;
-      else if (has('serviceTypeId')) payload['serviceTypeId'] = serviceTypeId;
+        const payload: Record<string, any> = {};
 
-      // timestamps si existen
-      if (has('createdAt')) payload['createdAt'] = { raw: 'CURRENT_TIMESTAMP' };
-      if (has('updatedAt')) payload['updatedAt'] = { raw: 'CURRENT_TIMESTAMP' };
-
-      if (Object.keys(payload).length >= 2) {
-        const colsList: string[] = [];
-        const qmarks: string[] = [];
-        const params: any[] = [];
-
-        for (const [k, v] of Object.entries(payload)) {
-          colsList.push(k);
-          if ((v as any)?.raw) {
-            qmarks.push((v as any).raw);
-          } else {
-            qmarks.push('?');
-            params.push(v);
-          }
+        // provider/profile
+        if (providerProfileId != null) {
+          if (has('provider_profile_id')) payload['provider_profile_id'] = providerProfileId;
+          else if (has('providerProfileId')) payload['providerProfileId'] = providerProfileId;
+        } else if (providerId != null) {
+          if (has('provider_id')) payload['provider_id'] = providerId;
+          else if (has('providerId')) payload['providerId'] = providerId;
         }
 
-        const sql = `INSERT OR IGNORE INTO provider_service_types (${colsList.join(', ')})
-                     VALUES (${qmarks.join(', ')})`;
-        await this.ds.query(sql, params);
-      }
-    }
+        // service type
+        if (has('service_type_id')) payload['service_type_id'] = serviceTypeId;
+        else if (has('serviceTypeId')) payload['serviceTypeId'] = serviceTypeId;
 
-    // listo: users + service type + vínculo creados para e2e
+        // timestamps si existen
+        if (has('createdAt')) payload['createdAt'] = { raw: 'CURRENT_TIMESTAMP' };
+        if (has('updatedAt')) payload['updatedAt'] = { raw: 'CURRENT_TIMESTAMP' };
+
+        if (Object.keys(payload).length >= 2) {
+          const colsList: string[] = [];
+          const qmarks: string[] = [];
+          const params: any[] = [];
+
+          for (const [k, v] of Object.entries(payload)) {
+            colsList.push(k);
+            if ((v as any)?.raw) qmarks.push((v as any).raw);
+            else { qmarks.push('?'); params.push(v); }
+          }
+
+          const sql = `INSERT OR IGNORE INTO provider_service_types (${colsList.join(', ')})
+                       VALUES (${qmarks.join(', ')})`;
+          await this.ds.query(sql, params);
+        }
+      }
+    } catch { /* si no existe la tabla, no bloquea */ }
   }
 }
