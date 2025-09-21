@@ -1,0 +1,10 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 65%      # líneas globales
+        threshold: 1%    # tolerancia
+    patch:
+      default:
+        target: 60%      # exige algo de cobertura en los cambios del PR
+        threshold: 1%

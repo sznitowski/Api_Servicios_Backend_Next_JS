@@ -2,13 +2,15 @@ name: CI e2e
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -18,12 +20,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
 
       - name: Install deps
         run: npm ci
 
-      # opcional: lint/build si los usás
+      # opcional:
       # - run: npm run lint
       # - run: npm run build
 
@@ -36,3 +38,12 @@ jobs:
         with:
           name: coverage
           path: coverage
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: e2e
+          fail_ci_if_error: true

@@ -55,6 +55,11 @@ describe('Notifications / clear & delete (e2e)', () => {
     await app?.close();
   });
 
+  it('clear-read sin notificaciones leídas -> 200/204', async () => {
+    const res = await http.post('/notifications/clear-read').set(H(hcli));
+    expect([200, 201, 204]).toContain(res.status);
+  });
+
   it('clear-read elimina todas las leídas; delete elimina una puntual', async () => {
     // -------- Parte A: marcar leídas y hacer clear-read --------
 
