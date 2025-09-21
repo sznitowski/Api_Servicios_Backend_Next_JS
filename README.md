@@ -1,3 +1,4 @@
+[![CI e2e](https://github.com/<org>/<repo>/actions/workflows/ci-e2e.yml/badge.svg)](../../actions)
 [![codecov](https://codecov.io/gh/<org>/<repo>/branch/main/graph/badge.svg)](https://codecov.io/gh/<org>/<repo>)
 
 
@@ -56,7 +57,6 @@ Solo seed + e2e:
 
 npm run db:seed:test
 npm run test:e2e
-
 
 Correr un archivo de test puntual:
 
