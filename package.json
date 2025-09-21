@@ -28,7 +28,12 @@
     "dx:up": "docker compose -f docker/docker-compose.yml up -d --build",
     "dx:down": "docker compose -f docker/docker-compose.yml down -v",
     "dx:logs": "docker compose -f docker/docker-compose.yml logs -f api",
-    "dx:seed": "docker compose -f docker/docker-compose.yml exec api node dist/scripts/seed-test.js"
+    "dx:seed": "docker compose -f docker/docker-compose.yml exec api node dist/scripts/seed-test.js",
+    "dev:up": "docker compose -f docker/docker-compose.dev.yml up -d --build",
+    "dev:down": "docker compose -f docker/docker-compose.dev.yml down -v",
+    "dev:logs": "docker compose -f docker/docker-compose.dev.yml logs -f api-dev",
+    "db:mig:run:ts": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/config/db/data-source.ts migration:run",
+    "seed:dev": "ts-node -r tsconfig-paths/register src/scripts/seed-test.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
