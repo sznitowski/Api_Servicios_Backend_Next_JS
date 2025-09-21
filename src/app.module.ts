@@ -12,11 +12,14 @@ import { RequestsModule } from './modules/request/requests.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
+// 👇 nueva importación: config centralizada (synchronize:false en prod)
+import { typeOrmConfig } from './config/typeorm.config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
 
-    // ⬇️ Logger bonito en consola y JSON limpio en prod
+    // Logger bonito en dev y JSON en prod
     LoggerModule.forRoot({
       pinoHttp: {
         genReqId: (req: any) =>
@@ -29,7 +32,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
                 options: {
                   singleLine: true,
                   colorize: true,
-                  translateTime: 'SYS:standard', // 2025-09-08 20:30:15
+                  translateTime: 'SYS:standard',
                 },
               },
         serializers: {
@@ -44,16 +47,9 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
       },
     }),
 
+    // 👇 usa la config centralizada; solo sobreescribo logging por entorno
     TypeOrmModule.forRoot({
-      type: 'mysql',
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT ?? 3306),
-      username: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
-      autoLoadEntities: true,
-       synchronize: false, 
-      //synchronize: process.env.NODE_ENV !== 'production', // solo en dev/test
+      ...typeOrmConfig(),
       logging: process.env.NODE_ENV !== 'production',
     }),
 
@@ -62,7 +58,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     CatalogModule,
     RequestsModule,
     ProvidersModule,
-    NotificationsModule
+    NotificationsModule,
   ],
 })
 export class AppModule {}
