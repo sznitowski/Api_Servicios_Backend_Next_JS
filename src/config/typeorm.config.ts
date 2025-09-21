@@ -10,7 +10,7 @@ export function typeOrmConfig(): TypeOrmModuleOptions {
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'services',
     autoLoadEntities: true,
-    synchronize: false,  
+    synchronize: process.env.DB_SYNC === 'true',
     logging: false,
   };
 }

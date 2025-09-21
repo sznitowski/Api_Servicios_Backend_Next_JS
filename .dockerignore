@@ -8,3 +8,4 @@ docker-compose*.yml
 .env.local
 .env.development
 .env.test
+.env.docker

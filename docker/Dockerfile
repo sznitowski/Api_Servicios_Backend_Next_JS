@@ -1,29 +1,34 @@
-# ===== STAGE 1: build =====
-FROM node:20-alpine AS build
+# docker/Dockerfile
+# Multi-stage build para NestJS
+
+# 1) Stage de build (con dev deps)
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Sólo package* para cachear deps
+# Solo reinstalar deps cuando cambian package*.json
 COPY package*.json ./
 RUN npm ci
 
-# Copiar código y compilar
+# Copiar el resto del código y compilar
 COPY . .
-# Si tu build usa tsconfig-paths, asegurate que esté en deps
 RUN npm run build
 
-# ===== STAGE 2: runtime =====
+# 2) Stage de runtime (solo prod deps)
 FROM node:20-alpine AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
-# Crear usuario no-root
-RUN addgroup -S app && adduser -S app -G app
-USER app
 
-# Copiamos sólo lo necesario
-COPY --chown=app:app package*.json ./
+# Usuario no root
+RUN addgroup -S app && adduser -S app -G app
+
+ENV NODE_ENV=production
+
+# Instalar solo dependencias de producción
+COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY --chown=app:app dist ./dist
+# Copiar el build generado en el stage anterior
+COPY --chown=app:app --from=builder /app/dist ./dist
 
+USER app
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

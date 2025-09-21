@@ -1,49 +1,45 @@
-version: "3.9"
+# docker/docker-compose.yml
 services:
   db:
     image: mysql:8.0
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: services
-      MYSQL_USER: app
-      MYSQL_PASSWORD: app
+      MYSQL_DATABASE: ${DB_NAME:-services_db}
+      MYSQL_USER: ${DB_USER:-app}
+      MYSQL_PASSWORD: ${DB_PASS:-app}
+      MYSQL_ROOT_PASSWORD: ${DB_PASS:-app}
     ports:
-      - "3306:3306"
+      - "3307:3306"   # usa 3307 en host para evitar conflicto con MySQL local
     volumes:
-      - dbdata:/var/lib/mysql
+      - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
-      interval: 10s
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u $$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
 
   api:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env.docker
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      # DB (ajustá según tu TypeORM config)
-      DB_TYPE: mysql
-      DB_HOST: db
-      DB_PORT: "3306"
-      DB_USER: app
-      DB_PASS: app
-      DB_NAME: services
-      # JWT
-      JWT_SECRET: "change-me"
-      JWT_REFRESH_SECRET: "change-me-too"
     ports:
       - "3000:3000"
 
   adminer:
-    image: adminer
+    image: adminer:latest
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
 
 volumes:
-  dbdata:
+  db_data:

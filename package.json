@@ -24,7 +24,11 @@
     "db:mig:run": "npm run typeorm -- migration:run",
     "db:mig:revert": "npm run typeorm -- migration:revert",
     "db:seed:test": "node -r ts-node/register -r tsconfig-paths/register ./src/scripts/seed-test.ts",
-    "db:mig:show": "npm run typeorm -- migration:show"
+    "db:mig:show": "npm run typeorm -- migration:show",
+    "dx:up": "docker compose -f docker/docker-compose.yml up -d --build",
+    "dx:down": "docker compose -f docker/docker-compose.yml down -v",
+    "dx:logs": "docker compose -f docker/docker-compose.yml logs -f api",
+    "dx:seed": "docker compose -f docker/docker-compose.yml exec api node dist/scripts/seed-test.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

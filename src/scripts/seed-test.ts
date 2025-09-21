@@ -1,6 +1,6 @@
 // scripts/seed-test.ts
 import 'reflect-metadata';
-import dataSource from './../data-source';
+import dataSource from './../config/db/data-source';
 import { User, UserRole } from '../modules/users/user.entity';
 import * as bcrypt from 'bcryptjs';
 
