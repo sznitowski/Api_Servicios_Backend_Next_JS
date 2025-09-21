@@ -1,11 +1,6 @@
-// src/modules/notifications/notification.entity.ts
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  ManyToOne,
-  CreateDateColumn,
-  Column,
-  Index,
+  Entity, PrimaryGeneratedColumn, ManyToOne, CreateDateColumn,
+  Column, Index, JoinColumn
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { ServiceRequest } from '../request/request.entity';
@@ -18,6 +13,7 @@ export enum NotificationType {
   DONE = 'DONE',
   CANCELLED = 'CANCELLED',
   ADMIN_CANCEL = 'ADMIN_CANCEL',
+  MESSAGE = 'MESSAGE',
 }
 
 @Entity('notifications')
@@ -26,28 +22,29 @@ export class Notification {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  // destinatario de la notificación
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  // request asociado (puede quedar NULL si se borra el request)
   @ManyToOne(() => ServiceRequest, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'request_id' })
   request!: ServiceRequest | null;
 
-  // transición que originó la notificación (puede quedar NULL si se borra)
   @ManyToOne(() => RequestTransition, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'transition_id' })
   transition!: RequestTransition | null;
 
-  // usar varchar para compatibilidad sqlite en tests
   @Column({ type: 'varchar', length: 32 })
   type!: NotificationType;
 
   @Column({ type: 'varchar', length: 280, nullable: true })
   message!: string | null;
 
-  @Column({ type: 'datetime', nullable: true })
+
+  @Column({ type: 'datetime', nullable: true, default: null })
   seenAt!: Date | null;
 
-  @CreateDateColumn()
+
+  @CreateDateColumn({ type: 'datetime', precision: 6 })
   createdAt!: Date;
 }

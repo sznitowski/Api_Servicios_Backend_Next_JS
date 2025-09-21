@@ -52,7 +52,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production', // solo en dev/test
+       synchronize: false, 
+      //synchronize: process.env.NODE_ENV !== 'production', // solo en dev/test
       logging: process.env.NODE_ENV !== 'production',
     }),
 

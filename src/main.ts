@@ -9,10 +9,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  // CORS (útil para el front)
   app.enableCors({ origin: true, credentials: true });
 
-  // Validación global
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -22,7 +20,12 @@ async function bootstrap() {
     }),
   );
 
-  // ---- Swagger: config + document (siempre generamos el document) ----
+  // Prefijo global
+  const globalPrefix = 'api';
+  app.setGlobalPrefix(globalPrefix);
+  console.log(`🌐 Global prefix habilitado: /${globalPrefix}`);
+
+  // Swagger
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Servicios API')
     .setDescription('API para auth, users, providers, catalog, requests')
@@ -31,16 +34,13 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-
-  // UI sólo fuera de producción
   if (process.env.NODE_ENV !== 'production') {
-    SwaggerModule.setup('docs', app, document, {
+    SwaggerModule.setup(`${globalPrefix}/docs`, app, document, {
       swaggerOptions: { persistAuthorization: true },
     });
-    console.log('📚 Swagger listo en http://localhost:3000/docs');
+    console.log(`📚 Swagger listo en /${globalPrefix}/docs`);
   }
 
-  // Exportar OpenAPI a archivo si se solicita
   if (process.env.GENERATE_OPENAPI === 'true') {
     const { writeFileSync, mkdirSync } = await import('fs');
     const { join } = await import('path');
@@ -50,9 +50,31 @@ async function bootstrap() {
     console.log('📝 OpenAPI exportado a docs/openapi.json');
   }
 
+  // Healthcheck accesible con y sin prefijo
+  const adapter: any = app.getHttpAdapter();
+  const healthHandler = (req: any, res: any) => {
+    const body = {
+      ok: true,
+      prefix: `/${globalPrefix}`,
+      ts: new Date().toISOString(),
+    };
+    if (adapter && typeof adapter.reply === 'function') {
+      adapter.reply(res, body, 200);
+    } else if (res?.json) {
+      res.json(body);
+    } else {
+      res.end(JSON.stringify(body));
+    }
+  };
+
+  if (adapter && typeof adapter.get === 'function') {
+    adapter.get('/health', healthHandler);                      // sin prefijo
+    adapter.get(`/${globalPrefix}/health`, healthHandler);      // con prefijo
+  }
+
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);
-  console.log(`🚀 Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}/${globalPrefix}`);
 }
 
 bootstrap();

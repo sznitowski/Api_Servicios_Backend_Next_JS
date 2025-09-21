@@ -21,7 +21,7 @@ import { RequestsModule } from './modules/request/requests.module';
       type: 'sqlite',
       database: ':memory:',
       dropSchema: true,
-      synchronize: true,
+      synchronize: false,
       autoLoadEntities: true,
       logging: false,
     }),
@@ -33,7 +33,7 @@ import { RequestsModule } from './modules/request/requests.module';
   ],
 })
 export class AppTestingModule implements OnModuleInit {
-  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+  constructor(@InjectDataSource() private readonly ds: DataSource) { }
 
   async onModuleInit() {
     // ---- Seed: users ----
