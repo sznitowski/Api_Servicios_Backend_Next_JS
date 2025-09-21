@@ -291,3 +291,18 @@ GET /notifications/me/count + test e2e.
 Esqueleto de SSE para notificaciones + emitir desde NotificationsService.
 
 Integrar helmet + CORS + @nestjs/throttler con límites sensatos y tests básicos.
+
+
+Memoria guardada actualizada
+
+Listo. ✅ Quedó guardado:
+
+Estado: e2e “todo verde”.
+
+Commit sugerido (exacto).
+
+Avance total ≈ 86% (detalle incluido).
+
+Próximo tema: CI e2e + cobertura + docs.
+
+Cuando vuelvas, lo traigo y seguimos desde ahí.
