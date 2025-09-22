@@ -22,7 +22,7 @@ export class NotificationsService {
     private readonly prefsRepo: Repository<NotificationPreferences>,
 
     private readonly stream: NotificationStreamService,
-  ) {}
+  ) { }
 
   // ------------------------------------------------------------------
   // NOTIFICACIÓN MANUAL (ej. chat)
@@ -31,6 +31,7 @@ export class NotificationsService {
    * Crea una notificación respetando preferencias.
    * Devuelve la notificación creada o `null` si el tipo está deshabilitado.
    */
+
   async createManual(params: {
     userId: number;
     requestId?: number | null;
@@ -39,26 +40,28 @@ export class NotificationsService {
   }): Promise<Notification | null> {
     const { userId, requestId, type, message } = params;
 
-    // 1) Preferencias del usuario
+    // ⚠️ Incluir relations.user y seleccionar id para evitar DISTINCT/ORDER errors
     const pref = await this.prefsRepo.findOne({
       where: { user: { id: userId } as any },
-      select: { disabledTypesJson: true },
+      relations: { user: true },
+      select: { id: true, disabledTypesJson: true, user: { id: true } },
     });
+
     const disabled = this.parseDisabled(pref?.disabledTypesJson);
     if (disabled.includes(type)) return null;
 
-    // 2) Crear fila por IDs (sin cargar entidades)
+    // Crear fila por IDs (sin cargar entidades)
     const row = this.repo.create({
       user: { id: userId } as any,
       request: requestId ? ({ id: requestId } as any) : null,
       type,
       message,
-      seenAt: null, // no leída
+      seenAt: null,
     });
 
     const saved = await this.repo.save(row);
 
-    // 3) Empujar por stream (no debe romper el flujo)
+    // Empujar por stream (no debe romper el flujo)
     try {
       this.stream?.publish?.(userId, {
         id: saved.id,
@@ -229,18 +232,18 @@ export class NotificationsService {
       createdAt: n.createdAt,
       request: n.request
         ? {
-            id: (n.request as any).id,
-            title: (n.request as any).title,
-            status: (n.request as any).status,
-          }
+          id: (n.request as any).id,
+          title: (n.request as any).title,
+          status: (n.request as any).status,
+        }
         : null,
       transition: n.transition
         ? {
-            id: (n.transition as any).id,
-            fromStatus: (n.transition as any).fromStatus,
-            toStatus: (n.transition as any).toStatus,
-            createdAt: (n.transition as any).createdAt,
-          }
+          id: (n.transition as any).id,
+          fromStatus: (n.transition as any).fromStatus,
+          toStatus: (n.transition as any).toStatus,
+          createdAt: (n.transition as any).createdAt,
+        }
         : null,
     }));
 
@@ -288,6 +291,7 @@ export class NotificationsService {
   // -----------------------------------------------------------
   // API por entidades (si la usas en otros servicios)
   // -----------------------------------------------------------
+  // Crea notificaciones desde otras capas usando entidades
   async create(input: {
     type: NotificationType;
     user: User;
@@ -295,10 +299,13 @@ export class NotificationsService {
     transition?: RequestTransition | null;
     message?: string | null;
   }) {
+    // ⚠️ Incluir relations.user y seleccionar id para evitar DISTINCT/ORDER errors
     const pref = await this.prefsRepo.findOne({
       where: { user: { id: input.user.id } as any },
-      select: { disabledTypesJson: true },
+      relations: { user: true },
+      select: { id: true, disabledTypesJson: true, user: { id: true } },
     });
+
     const disabled = this.parseDisabled(pref?.disabledTypesJson);
     if (disabled.includes(input.type)) return null;
 
@@ -312,4 +319,5 @@ export class NotificationsService {
     });
     return this.repo.save(notif);
   }
+
 }
