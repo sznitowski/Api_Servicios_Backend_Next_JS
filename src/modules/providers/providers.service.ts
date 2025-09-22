@@ -28,7 +28,7 @@ export class ProvidersService {
     private readonly stRepo: Repository<ServiceType>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   /** Crea (si no existe) y devuelve el perfil del proveedor para un userId. */
   private async getOrCreateProfile(userId: number) {
@@ -267,11 +267,6 @@ export class ProvidersService {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
     const sort = (q.sort ?? 'distance') as 'distance' | 'rating' | 'price';
-    // NUEVO: rating mínimo (normalizado 1..5)
-    const minRating =
-      q.minRating !== undefined && q.minRating !== null
-        ? Math.min(5, Math.max(1, Number(q.minRating)))
-        : undefined;
 
     if (Number.isNaN(serviceTypeId) || Number.isNaN(lat) || Number.isNaN(lng)) {
       throw new BadRequestException('serviceTypeId, lat y lng son requeridos');
@@ -292,7 +287,7 @@ export class ProvidersService {
       .innerJoin(
         UserAddress,
         'addr',
-        'addr.user_id = u.id AND addr.isDefault = 1 AND addr.lat IS NOT NULL AND addr.lng IS NOT NULL',
+        'addr.user_id = u.id AND addr.is_default = 1 AND addr.lat IS NOT NULL AND addr.lng IS NOT NULL',
       )
       .where('pst.active = 1 AND st.id = :stId', { stId: serviceTypeId })
       .addSelect('u.id', 'providerUserId')
@@ -320,32 +315,61 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
-    // Radio por HAVING debido a la columna calculada
+    // Radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
-    // NUEVO: filtro por rating mínimo (excluye sin calificaciones)
-    if (minRating !== undefined) {
-      baseQb.andWhere(
-        'prov.ratingCount > 0 AND CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating',
-        { minRating },
-      );
+    // ---------- Filtros opcionales ----------
+    if (typeof q.minRating === 'number') {
+      baseQb.andWhere('CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating', {
+        minRating: q.minRating,
+      });
     }
 
-    // Orden
+    if (typeof q.minReviews === 'number') {
+      baseQb.andWhere('prov.ratingCount >= :minReviews', { minReviews: q.minReviews });
+    }
+
+    if (typeof q.minPrice === 'number') {
+      baseQb.andWhere('pst.basePrice IS NOT NULL')
+        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) >= :minPrice', { minPrice: q.minPrice });
+    }
+
+    if (typeof q.maxPrice === 'number') {
+      baseQb.andWhere('pst.basePrice IS NOT NULL')
+        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) <= :maxPrice', { maxPrice: q.maxPrice });
+    }
+
+    if (typeof q.hasPhoto === 'boolean') {
+      if (q.hasPhoto) {
+        baseQb.andWhere("(prov.photoUrl IS NOT NULL AND prov.photoUrl <> '')");
+      } else {
+        baseQb.andWhere("(prov.photoUrl IS NULL OR prov.photoUrl = '')");
+      }
+    }
+
+    const term = (q.q ?? '').trim();
+    if (term) {
+      baseQb.andWhere('(prov.displayName LIKE :q OR u.name LIKE :q)', { q: `%${term}%` });
+    }
+
+    // ---------- Orden ----------
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
-      baseQb.orderBy('pst.basePrice', 'ASC').addOrderBy('distanceKm', 'ASC');
+      // Orden numérico por precio; NULL al final
+      baseQb
+        .orderBy('CASE WHEN pst.basePrice IS NULL THEN 1 ELSE 0 END', 'ASC')
+        .addOrderBy('CAST(pst.basePrice AS DECIMAL(10,2))', 'ASC')
+        .addOrderBy('distanceKm', 'ASC');
     } else {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
-    // Total (sin paginar)
+    // ---------- Total y página ----------
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
 
-    // Paginado
     const rows = await baseQb.skip((page - 1) * limit).take(limit).getRawMany();
 
     const items = rows.map((r: any) => ({
@@ -365,4 +389,5 @@ export class ProvidersService {
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   }
+
 }

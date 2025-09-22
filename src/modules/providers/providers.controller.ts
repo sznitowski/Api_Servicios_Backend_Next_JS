@@ -23,7 +23,7 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { SearchProvidersDto } from './dto/search-providers.dto';
 
 // Ratings
-import { RatingsService } from '../ragings/ratings.service'; // <- si tu carpeta se llama "ragings", dejalo así
+import { RatingsService } from '../ragings/ratings.service';
 
 // Swagger
 import {
@@ -142,27 +142,34 @@ export class ProvidersController {
   }
 
   // ---------- Búsqueda pública ----------
-  @ApiOperation({ summary: 'Buscar proveedores por tipo y radio (con orden y rating mínimo)' })
-  @ApiOkResponse({ description: 'Listado paginado con distancia, precio base y rating' })
+  @ApiOperation({ summary: 'Buscar proveedores por tipo y radio (con filtros)' })
+  @ApiOkResponse({ description: 'Listado paginado con distancia y precio base' })
   @ApiQuery({ name: 'serviceTypeId', required: true, type: Number })
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
   @ApiQuery({ name: 'radiusKm', required: false, type: Number, example: 10 })
-  @ApiQuery({ name: 'minRating', required: false, type: Number, example: 4 })
-  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  // Filtros nuevos:
+  @ApiQuery({ name: 'minRating', required: false, type: Number, example: 4.5 })
+  @ApiQuery({ name: 'minReviews', required: false, type: Number, example: 3 })
+  @ApiQuery({ name: 'minPrice', required: false, type: Number, example: 15000 })
+  @ApiQuery({ name: 'maxPrice', required: false, type: Number, example: 25000 })
+  @ApiQuery({ name: 'hasPhoto', required: false, type: Boolean, example: true })
+  @ApiQuery({ name: 'q', required: false, type: String, example: 'plomero' })
+  // Orden + paginado
   @ApiQuery({
     name: 'sort',
     required: false,
     enum: ['distance', 'rating', 'price'],
     example: 'distance',
   })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Get('search')
   search(@Query() q: SearchProvidersDto) {
     return this.service.searchProviders(q);
   }
 
-  // ---------- Público por :id (después de /search para no colisionar) ----------
+  // ---------- Público por :id ----------
   @ApiOperation({ summary: 'Perfil público del proveedor (por userId)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Perfil público' })
