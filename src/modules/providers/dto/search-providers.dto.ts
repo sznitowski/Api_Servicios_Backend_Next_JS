@@ -1,7 +1,7 @@
 // src/modules/providers/dto/search-providers.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsOptional, Min, Max } from 'class-validator';
 
 export class SearchProvidersDto {
   @ApiProperty({ example: 1 })
@@ -31,6 +31,15 @@ export class SearchProvidersDto {
   @IsOptional()
   @IsIn(['distance', 'rating', 'price'])
   sort?: 'distance' | 'rating' | 'price';
+
+  // NUEVO: filtro por rating mínimo (1..5)
+  @ApiPropertyOptional({ example: 4, description: 'Filtrar por calificación promedio mínima (1-5)' })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  minRating?: number;
 
   @ApiPropertyOptional({ example: 1 })
   @Type(() => Number)

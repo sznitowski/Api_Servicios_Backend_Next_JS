@@ -267,6 +267,11 @@ export class ProvidersService {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
     const sort = (q.sort ?? 'distance') as 'distance' | 'rating' | 'price';
+    // NUEVO: rating mínimo (normalizado 1..5)
+    const minRating =
+      q.minRating !== undefined && q.minRating !== null
+        ? Math.min(5, Math.max(1, Number(q.minRating)))
+        : undefined;
 
     if (Number.isNaN(serviceTypeId) || Number.isNaN(lat) || Number.isNaN(lng)) {
       throw new BadRequestException('serviceTypeId, lat y lng son requeridos');
@@ -315,8 +320,18 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
+    // Radio por HAVING debido a la columna calculada
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
+    // NUEVO: filtro por rating mínimo (excluye sin calificaciones)
+    if (minRating !== undefined) {
+      baseQb.andWhere(
+        'prov.ratingCount > 0 AND CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating',
+        { minRating },
+      );
+    }
+
+    // Orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
@@ -325,10 +340,12 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
+    // Total (sin paginar)
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
 
+    // Paginado
     const rows = await baseQb.skip((page - 1) * limit).take(limit).getRawMany();
 
     const items = rows.map((r: any) => ({
