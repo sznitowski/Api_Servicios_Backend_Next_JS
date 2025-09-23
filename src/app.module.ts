@@ -12,7 +12,7 @@ import { RequestsModule } from './modules/request/requests.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
-// 👇 nueva importación: config centralizada (synchronize:false en prod)
+// 👇 importación: config centralizada (synchronize:false en prod)
 import { typeOrmConfig } from './config/typeorm.config';
 
 @Module({

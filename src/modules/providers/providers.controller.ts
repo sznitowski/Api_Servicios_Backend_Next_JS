@@ -1,4 +1,3 @@
-// src/modules/providers/providers.controller.ts
 import {
   Body,
   Controller,
@@ -13,8 +12,13 @@ import {
   Param,
   ParseIntPipe,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+// ❌ Quita esto: import { AuthGuard } from '@nestjs/passport';
 import { ProvidersService } from './providers.service';
+
+// ✅ Usa tu guard personalizado
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+// ✅ Y el decorator Public
+import { Public } from '../../common/decorators/public.decorator';
 
 // DTOs
 import { UpdateProviderProfileDto } from './dto/update-provider-profile.dto';
@@ -40,7 +44,8 @@ import {
 
 @ApiTags('providers')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
+// ✅ Aplica el guard a TODO el controller…
+@UseGuards(JwtAuthGuard)
 @Controller('providers')
 export class ProvidersController {
   constructor(
@@ -148,14 +153,12 @@ export class ProvidersController {
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
   @ApiQuery({ name: 'radiusKm', required: false, type: Number, example: 10 })
-  // Filtros nuevos:
   @ApiQuery({ name: 'minRating', required: false, type: Number, example: 4.5 })
   @ApiQuery({ name: 'minReviews', required: false, type: Number, example: 3 })
   @ApiQuery({ name: 'minPrice', required: false, type: Number, example: 15000 })
   @ApiQuery({ name: 'maxPrice', required: false, type: Number, example: 25000 })
   @ApiQuery({ name: 'hasPhoto', required: false, type: Boolean, example: true })
   @ApiQuery({ name: 'q', required: false, type: String, example: 'plomero' })
-  // Orden + paginado
   @ApiQuery({
     name: 'sort',
     required: false,
@@ -164,6 +167,8 @@ export class ProvidersController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  // ✅ ESTA ruta queda PÚBLICA
+  @Public()
   @Get('search')
   search(@Query() q: SearchProvidersDto) {
     return this.service.searchProviders(q);

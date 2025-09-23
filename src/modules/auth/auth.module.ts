@@ -8,20 +8,16 @@ import { UsersModule } from '../users/users.module';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { AuthController } from './auth.controller';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @Module({
   imports: [
-    // tus módulos
     UsersModule,
 
-    // aunque ConfigModule sea global, lo incluimos aquí para que
-    // JwtModule.registerAsync pueda inyectar ConfigService sin problemas
     ConfigModule,
-
     PassportModule.register({ defaultStrategy: 'jwt' }),
-
     JwtModule.registerAsync({
-      imports: [ConfigModule],                 // 👈 **IMPORTANTE**
+      imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_SECRET', 'dev-secret'),
@@ -31,8 +27,9 @@ import { AuthController } from './auth.controller';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+
+  providers: [AuthService, JwtStrategy, JwtAuthGuard],
   controllers: [AuthController],
-  exports: [AuthService, JwtModule, PassportModule],
+  exports: [AuthService, JwtModule, PassportModule, JwtAuthGuard],
 })
 export class AuthModule {}
