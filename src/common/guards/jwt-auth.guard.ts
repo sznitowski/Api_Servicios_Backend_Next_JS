@@ -1,3 +1,4 @@
+// src/common/guards/jwt-auth.guard.ts
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
@@ -15,6 +16,19 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       context.getClass(),
     ]);
     if (isPublic) return true;
+
+
+    const req = context.switchToHttp().getRequest();
+    const accessToken =
+      req?.query?.access_token ||
+      req?.query?.token ||
+      req?.headers?.['x-access-token'];
+    if (accessToken && !req.headers?.authorization) {
+      req.headers.authorization = `Bearer ${
+        Array.isArray(accessToken) ? accessToken[0] : accessToken
+      }`;
+    }
+
     return super.canActivate(context);
   }
 }
