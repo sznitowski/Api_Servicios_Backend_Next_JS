@@ -15,8 +15,6 @@ export class RequestRating {
   @JoinColumn({ name: 'request_id' })
   request: ServiceRequest;
 
-  
-
   // quién califica (cliente)
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'rater_id' })

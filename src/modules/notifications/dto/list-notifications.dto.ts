@@ -1,7 +1,7 @@
 // src/modules/notifications/dto/list-notifications.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, Min, Max } from 'class-validator';
 
 export class ListNotificationsDto {
   @ApiPropertyOptional({ description: 'Sólo no leídas', type: Boolean, example: true })
@@ -14,7 +14,13 @@ export class ListNotificationsDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
   page: number = 1;
 
-  @ApiPropertyOptional({ description: 'Tamaño de página', type: Number, example: 20, minimum: 1 })
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  @ApiPropertyOptional({
+    description: 'Tamaño de página',
+    type: Number,
+    example: 20,
+    minimum: 1,
+    maximum: 50,
+  })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50)
   limit: number = 20;
 }

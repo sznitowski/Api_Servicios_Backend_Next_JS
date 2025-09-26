@@ -43,7 +43,7 @@ describe('Notifications / preferencias (e2e)', () => {
     // 1) Cliente silencia OFFERED
     await http.put('/notifications/prefs')
       .set(H(hcli))
-      .send({ disabledTypes: ['OFFERED'] })
+      .send({ disabledTypes: ['IN_PROGRESS','DONE'] })
       .expect(expectOk);
 
     // 2) Cliente crea request

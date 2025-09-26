@@ -18,6 +18,7 @@ import { CreateRequestDto } from './dto/create-request.dto';
 import { OfferDto, AcceptDto } from './dto/transition.dto';
 import { RatingsService } from '../ragings/ratings.service';
 import { RateRequestDto } from './dto/rate-request.dto';
+import { CreateRatingDto } from '../ragings/dto/create-rating.dto';
 import { ListRequestsQueryDto } from './dto/list-requests.query.dto';
 import { OpenRequestsQueryDto } from './dto/open-requests.query.dto';
 import { FeedQueryDto } from './dto/feed.dto';
@@ -26,6 +27,7 @@ import { CancelRequestDto } from './dto/cancel-request.dto';
 
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { UserRole } from '../users/user.entity';
 
 import {
@@ -46,13 +48,13 @@ import {
 @ApiTags('requests')
 @ApiBearerAuth()
 // Todas las rutas requieren JWT
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(JwtAuthGuard)
 @Controller('requests')
 export class RequestsController {
   constructor(
     private readonly service: RequestsService,
     private readonly ratings: RatingsService,
-  ) {}
+  ) { }
 
   // Helper: toma userId desde el token (algunos tests usan `id`, otros `sub`)
   private uid(req: any): number {
@@ -323,7 +325,21 @@ export class RequestsController {
   @Post(':id/rate')
   rate(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: RateRequestDto,
+    @Body() body: CreateRatingDto,
+    @Req() req: any,
+  ) {
+    return this.ratings.rateRequest(id, this.uid(req), body);
+  }
+
+  // Alias RESTful: POST /requests/:id/rating
+  @ApiOperation({ summary: 'Calificar trabajo (alias de /:id/rate)' })
+  @ApiBody({ type: CreateRatingDto })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.CLIENT, UserRole.ADMIN)
+  @Post(':id/rating')
+  rateAlias(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: CreateRatingDto,
     @Req() req: any,
   ) {
     return this.ratings.rateRequest(id, this.uid(req), body);

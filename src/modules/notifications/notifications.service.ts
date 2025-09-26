@@ -22,7 +22,7 @@ export class NotificationsService {
     private readonly prefsRepo: Repository<NotificationPreferences>,
 
     private readonly stream: NotificationStreamService,
-  ) { }
+  ) {}
 
   // ------------------------------------------------------------------
   // NOTIFICACIÓN MANUAL (ej. chat)
@@ -31,7 +31,6 @@ export class NotificationsService {
    * Crea una notificación respetando preferencias.
    * Devuelve la notificación creada o `null` si el tipo está deshabilitado.
    */
-
   async createManual(params: {
     userId: number;
     requestId?: number | null;
@@ -232,18 +231,18 @@ export class NotificationsService {
       createdAt: n.createdAt,
       request: n.request
         ? {
-          id: (n.request as any).id,
-          title: (n.request as any).title,
-          status: (n.request as any).status,
-        }
+            id: (n.request as any).id,
+            title: (n.request as any).title,
+            status: (n.request as any).status,
+          }
         : null,
       transition: n.transition
         ? {
-          id: (n.transition as any).id,
-          fromStatus: (n.transition as any).fromStatus,
-          toStatus: (n.transition as any).toStatus,
-          createdAt: (n.transition as any).createdAt,
-        }
+            id: (n.transition as any).id,
+            fromStatus: (n.transition as any).fromStatus,
+            toStatus: (n.transition as any).toStatus,
+            createdAt: (n.transition as any).createdAt,
+          }
         : null,
     }));
 
@@ -289,9 +288,8 @@ export class NotificationsService {
   }
 
   // -----------------------------------------------------------
-  // API por entidades (si la usas en otros servicios)
+  // API por entidades (se mantienen para uso desde otros servicios)
   // -----------------------------------------------------------
-  // Crea notificaciones desde otras capas usando entidades
   async create(input: {
     type: NotificationType;
     user: User;
@@ -319,5 +317,4 @@ export class NotificationsService {
     });
     return this.repo.save(notif);
   }
-
 }

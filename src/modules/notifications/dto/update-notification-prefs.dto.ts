@@ -1,17 +1,15 @@
 // src/modules/notifications/dto/update-notification-prefs.dto.ts
-import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, ArrayUnique, IsEnum } from 'class-validator';
-import { NotificationType } from '../notification.entity';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsArray, IsOptional, IsString } from 'class-validator';
 
 export class UpdateNotificationPrefsDto {
-  @ApiProperty({
-    description: 'Tipos de notificación a deshabilitar',
-    isArray: true,
-    enum: NotificationType,
-    example: ['OFFERED', 'DONE'],
+  @ApiPropertyOptional({
+    description: 'Tipos deshabilitados (por ejemplo: OFFERED, ACCEPTED, IN_PROGRESS, DONE, CANCELLED, ADMIN_CANCEL)',
+    type: [String],
+    example: ['OFFERED', 'CANCELLED'],
   })
+  @IsOptional()
   @IsArray()
-  @ArrayUnique()
-  @IsEnum(NotificationType, { each: true })
-  disabledTypes!: NotificationType[];
+  @IsString({ each: true })
+  disabledTypes?: string[];
 }
