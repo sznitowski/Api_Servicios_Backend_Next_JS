@@ -1,63 +1,118 @@
 // src/modules/ai/ai.service.ts
-import {
-  Injectable,
-  UnauthorizedException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import OpenAI from 'openai';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AIUsage } from './ai-usage.entity';
 
 @Injectable()
 export class AiService {
-  private readonly client: OpenAI;
+  private readonly client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY!,
+    organization: process.env.OPENAI_ORG || undefined,
+    project: process.env.OPENAI_PROJECT || undefined,
+  });
 
-  constructor() {
-    // Lee la API key del entorno (.env.dev / .env.docker)
-    // Si no está definida, el SDK fallará al primer uso.
-    this.client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+  constructor(
+    @InjectRepository(AIUsage)
+    private readonly usageRepo: Repository<AIUsage>,
+  ) {}
+
+  get api() {
+    return this.client;
   }
 
-  /** Modelo por defecto configurable por env */
   model() {
     return process.env.OPENAI_MODEL || 'gpt-4.1-mini';
   }
 
-  /** Llamada simple con retry para 429 (rate limit / cuota) */
-  async chat(prompt: string): Promise<{ text: string }> {
+  private mapOpenAIError(e: any): never {
+    // Normalizamos a mensajes/estados consistentes
+    if (e?.status === 401) {
+      throw new HttpException(
+        { message: 'AI provider error', error: 'Unauthorized' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+    if (e?.status === 429 || e?.code === 'insufficient_quota') {
+      throw new HttpException(
+        { message: 'AI provider error', error: 'Rate limited / Quota' },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    if (e?.status === 503) {
+      throw new HttpException(
+        { message: 'AI provider error', error: 'Service Unavailable' },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+    throw new HttpException(
+      { message: 'AI provider error', error: 'Bad Gateway' },
+      HttpStatus.BAD_GATEWAY,
+    );
+  }
+
+  /**
+   * Llama al modelo con reintento simple y registra uso.
+   * @param prompt Texto a enviar
+   * @param userId (opcional) para auditar
+   */
+  async chat(prompt: string, userId?: number | null) {
+    const started = Date.now();
+    const model = this.model();
+    const promptChars = (prompt ?? '').length;
+
+    // ---- Retry / backoff (tu bloque) ----
     for (let i = 0; i < 2; i++) {
       try {
         const r = await this.client.responses.create({
-          model: this.model(),
+          model,
           input: prompt,
         });
-        // En el SDK v4, el texto directo viene como `output_text`
-        return { text: (r as any).output_text ?? '' };
+
+        const text = (r as any).output_text as string;
+        // Log OK
+        await this.usageRepo.save(
+          this.usageRepo.create({
+            user: userId ? ({ id: userId } as any) : null,
+            model,
+            promptChars,
+            responseChars: (text ?? '').length,
+            status: 'ok',
+            latencyMs: Date.now() - started,
+          }),
+        );
+        return text;
       } catch (e: any) {
-        // Reintento simple ante 429 (rate limit / insuficient_quota transitorio)
-        if (e?.status === 429 && i < 1) {
+        // 429 => un intento más
+        if ((e?.status === 429 || e?.code === 'insufficient_quota') && i < 1) {
           await new Promise((res) => setTimeout(res, 1500));
           continue;
         }
-        if (e?.status === 401) {
-          throw new UnauthorizedException('OpenAI API key rechazada.');
-        }
-        if (e?.status === 503) {
-          throw new ServiceUnavailableException('AI provider error');
-        }
-        // Propaga otros errores para que Nest los serialice
-        throw e;
+        // Log ERROR y propagar normalizado
+        await this.usageRepo.save(
+          this.usageRepo.create({
+            user: userId ? ({ id: userId } as any) : null,
+            model,
+            promptChars,
+            responseChars: 0,
+            status: 'error',
+            latencyMs: Date.now() - started,
+          }),
+        );
+        this.mapOpenAIError(e);
       }
     }
-    throw new ServiceUnavailableException('AI provider error');
+
+    // Si por alguna razón cae acá:
+    throw new HttpException(
+      { message: 'AI provider error', error: 'Unknown' },
+      HttpStatus.BAD_GATEWAY,
+    );
   }
 
-  /** Mini “analizador” para logs/errores */
-  async diagnose(text: string) {
-    const prompt =
-      `Sos un asistente técnico. Dado este log/mensaje, devolvé 3 bullets: ` +
-      `(1) hipótesis del problema, (2) pasos para verificar, (3) fix sugerido.\n\n` +
-      text;
-    return this.chat(prompt);
+  async pingModels() {
+    // ping simple para diagnóstico
+    return { ok: true, model: this.model() };
   }
 }
