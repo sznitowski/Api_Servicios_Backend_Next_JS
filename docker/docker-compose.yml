@@ -12,7 +12,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASS:-app}
       MYSQL_ROOT_PASSWORD: ${DB_PASS:-app}
     ports:
-      - "3307:3306"   # usa 3307 en host para evitar conflicto con MySQL local
+      - "3308:3306"   # <-- cambiamos a 3308 para evitar conflicto
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -26,7 +26,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     env_file:
-      - ../.env.docker
+      - .env.docker
     depends_on:
       db:
         condition: service_healthy

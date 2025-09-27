@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
+import { AiModule } from './modules/ai/ai.module';
 
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -28,13 +29,13 @@ import { typeOrmConfig } from './config/typeorm.config';
           process.env.NODE_ENV === 'production'
             ? undefined
             : {
-                target: 'pino-pretty',
-                options: {
-                  singleLine: true,
-                  colorize: true,
-                  translateTime: 'SYS:standard',
-                },
+              target: 'pino-pretty',
+              options: {
+                singleLine: true,
+                colorize: true,
+                translateTime: 'SYS:standard',
               },
+            },
         serializers: {
           req(req) { return { id: req.id, method: req.method, url: req.url }; },
           res(res) { return { statusCode: res.statusCode }; },
@@ -59,6 +60,8 @@ import { typeOrmConfig } from './config/typeorm.config';
     RequestsModule,
     ProvidersModule,
     NotificationsModule,
+    AiModule,
+
   ],
 })
-export class AppModule {}
+export class AppModule { }
