@@ -24,6 +24,56 @@ export class NotificationsService {
     private readonly stream: NotificationStreamService,
   ) {}
 
+  // -----------------------------------------------------------
+  // DTO helper para SSE
+  // -----------------------------------------------------------
+  private toDto(n: Notification) {
+    return {
+      id: n.id,
+      type: n.type,
+      message: n.message,
+      seenAt: n.seenAt,
+      createdAt: n.createdAt,
+      request: n.request
+        ? {
+            id: (n.request as any).id,
+            title: (n.request as any).title,
+            status: (n.request as any).status,
+          }
+        : undefined,
+    };
+  }
+
+  // -----------------------------------------------------------
+  // Crear + Emitir (uso general)
+  // -----------------------------------------------------------
+  async createAndEmit(params: {
+    userId: number;
+    type: NotificationType;
+    message: string;
+    requestId?: number;
+    transitionId?: number;
+  }) {
+    const notif = this.repo.create({
+      type: params.type,
+      message: params.message,
+      user: { id: params.userId } as any,
+      request: params.requestId ? ({ id: params.requestId } as any) : undefined,
+      transition: params.transitionId ? ({ id: params.transitionId } as any) : undefined,
+      seenAt: null,
+    });
+    const saved = await this.repo.save(notif);
+
+    // Empujar por SSE
+    try {
+      this.stream.publish(params.userId, this.toDto(saved));
+    } catch {
+      /* noop */
+    }
+
+    return saved;
+  }
+
   // ------------------------------------------------------------------
   // NOTIFICACIÓN MANUAL (ej. chat)
   // ------------------------------------------------------------------
@@ -49,31 +99,13 @@ export class NotificationsService {
     const disabled = this.parseDisabled(pref?.disabledTypesJson);
     if (disabled.includes(type)) return null;
 
-    // Crear fila por IDs (sin cargar entidades)
-    const row = this.repo.create({
-      user: { id: userId } as any,
-      request: requestId ? ({ id: requestId } as any) : null,
+    // Centralizamos en createAndEmit (ya emite por SSE)
+    return await this.createAndEmit({
+      userId,
       type,
       message,
-      seenAt: null,
+      requestId: requestId ?? undefined,
     });
-
-    const saved = await this.repo.save(row);
-
-    // Empujar por stream (no debe romper el flujo)
-    try {
-      this.stream?.publish?.(userId, {
-        id: saved.id,
-        type: saved.type,
-        message: saved.message,
-        requestId: requestId ?? (saved as any)?.request?.id ?? null,
-        createdAt: saved.createdAt,
-      });
-    } catch {
-      /* noop */
-    }
-
-    return saved;
   }
 
   // -----------------------------------------------------------
@@ -174,15 +206,9 @@ export class NotificationsService {
 
     const saved = await this.repo.save(rows);
 
-    // Stream
+    // Emitir 1×1 por SSE
     for (const n of saved) {
-      this.stream.publish((n.user as any).id, {
-        id: n.id,
-        type: n.type,
-        message: n.message,
-        requestId: (n.request as any)?.id ?? req.id,
-        createdAt: n.createdAt,
-      });
+      this.stream.publish((n.user as any).id, this.toDto(n));
     }
   }
 

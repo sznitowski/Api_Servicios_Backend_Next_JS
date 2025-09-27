@@ -13,9 +13,9 @@ import {
   Sse,
   MessageEvent,
   Delete,
+  Header,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -32,6 +32,7 @@ import { NotificationsService } from './notifications.service';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
 import { UpdateNotificationPrefsDto } from './dto/update-notification-prefs.dto';
 import { NotificationStreamService } from './notification-stream.service';
+import { SkipThrottle } from '@nestjs/throttler';
 
 @ApiTags('notifications')
 @ApiBearerAuth()
@@ -41,9 +42,9 @@ export class NotificationsController {
   constructor(
     private readonly service: NotificationsService,
     private readonly streams: NotificationStreamService,
-  ) {}
+  ) { }
 
-  // Helper: userId desde el token
+  // userId desde el token
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
@@ -104,6 +105,10 @@ export class NotificationsController {
   // GET /notifications/stream -> SSE en tiempo real
   @ApiOperation({ summary: 'Stream SSE de notificaciones en tiempo real' })
   @ApiNoContentResponse({ description: 'SSE stream' })
+  @SkipThrottle() // no contar este endpoint en el rate-limit
+  @Header('Cache-Control', 'no-cache')
+  @Header('Connection', 'keep-alive')
+  @Header('X-Accel-Buffering', 'no')
   @Sse('stream')
   stream(@Req() req: any): Observable<MessageEvent> {
     const userId = this.uid(req);
@@ -135,4 +140,21 @@ export class NotificationsController {
   clearRead(@Req() req: any) {
     return this.service.clearRead(this.uid(req));
   }
+
+  // DEBUG: Empuja un evento al stream del usuario autenticado
+  @ApiOperation({ summary: 'Enviar notificación de prueba (debug)' })
+  @SkipThrottle()
+  @Post('me/poke')
+  poke(@Req() req: any) {
+    const userId = this.uid(req);
+    const payload = {
+      id: 0,
+      type: 'DEBUG',
+      message: `poke @ ${new Date().toISOString()}`,
+    };
+    this.streams.publish(userId, payload); 
+    return { ok: true };
+  }
+
 }
+

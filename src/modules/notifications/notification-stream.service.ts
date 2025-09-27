@@ -1,24 +1,30 @@
 // src/modules/notifications/notification-stream.service.ts
-import { Injectable } from '@nestjs/common';
-import { Subject, Observable } from 'rxjs';
+import { Injectable, Logger } from '@nestjs/common';
+import { Observable, Subject } from 'rxjs';
 
 @Injectable()
 export class NotificationStreamService {
+  private readonly log = new Logger(NotificationStreamService.name);
   private channels = new Map<number, Subject<any>>();
 
-  // Obtiene (o crea) el canal del usuario
   getChannel(userId: number): Observable<any> {
-    if (!this.channels.has(userId)) {
-      this.channels.set(userId, new Subject<any>());
+    let ch = this.channels.get(userId);
+    if (!ch) {
+      ch = new Subject<any>();
+      this.channels.set(userId, ch);
+      this.log.debug(`SSE channel created for user ${userId}`);
     }
-    return this.channels.get(userId)!.asObservable();
+    return ch.asObservable();
   }
 
-  // Publica un payload en el canal del usuario
-  publish(userId: number, payload: any) {
-    if (!this.channels.has(userId)) {
-      this.channels.set(userId, new Subject<any>());
+  publish(userId: number, payload: any): void {
+    let ch = this.channels.get(userId);
+    if (!ch) {
+      ch = new Subject<any>();
+      this.channels.set(userId, ch);
+      this.log.debug(`SSE channel lazily created for user ${userId}`);
     }
-    this.channels.get(userId)!.next(payload);
+    this.log.debug(`publish -> user ${userId}: ${JSON.stringify(payload)}`);
+    ch.next(payload);
   }
 }

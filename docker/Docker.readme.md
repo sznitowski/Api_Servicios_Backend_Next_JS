@@ -127,3 +127,29 @@ irm "http://localhost:3000/api/requests/$rid/rate"     -Method POST -Headers @{ 
 
 # 6) Timeline
 irm "http://localhost:3000/api/requests/$rid/timeline" -Headers @{ Authorization = "Bearer $clientToken" } | Format-Table createdAt,fromStatus,toStatus,priceOffered,priceAgreed -AutoSize
+
+
+
+1) Ver el nombre exacto del contenedor
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+
+Buscá el que corresponde a tu API (p.ej. docker-dev-api). Copiá el nombre exacto.
+
+2) Reiniciar el contenedor
+docker restart <NOMBRE-CONTENEDOR>
+# ejemplo:
+docker restart docker-dev-api
+
+3) (Opcional) Ver logs para confirmar que levantó bien
+docker logs -f docker-dev-api
+
+4) Si usás Docker Compose
+
+Depende de tu versión puede ser docker compose o docker-compose:
+
+docker compose ps
+docker compose restart api   # si tu servicio en compose se llama "api"
+# o
+docker-compose ps
+docker-compose restart api
