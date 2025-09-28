@@ -22,7 +22,7 @@ export class NotificationsService {
     private readonly prefsRepo: Repository<NotificationPreferences>,
 
     private readonly stream: NotificationStreamService,
-  ) {}
+  ) { }
 
   // -----------------------------------------------------------
   // DTO helper para SSE
@@ -36,12 +36,20 @@ export class NotificationsService {
       createdAt: n.createdAt,
       request: n.request
         ? {
-            id: (n.request as any).id,
-            title: (n.request as any).title,
-            status: (n.request as any).status,
-          }
+          id: (n.request as any).id,
+          title: (n.request as any).title,
+          status: (n.request as any).status,
+        }
         : undefined,
     };
+  }
+
+  // -----------------------------------------------------------
+  async markSeen(userId: number, ids?: number[], all?: boolean) {
+    const where: any = { user: { id: userId } as any, seenAt: IsNull() };
+    if (!all && ids?.length) where.id = In(ids);
+    const res = await this.repo.update(where, { seenAt: new Date() });
+    return res.affected ?? 0;
   }
 
   // -----------------------------------------------------------
@@ -257,18 +265,18 @@ export class NotificationsService {
       createdAt: n.createdAt,
       request: n.request
         ? {
-            id: (n.request as any).id,
-            title: (n.request as any).title,
-            status: (n.request as any).status,
-          }
+          id: (n.request as any).id,
+          title: (n.request as any).title,
+          status: (n.request as any).status,
+        }
         : null,
       transition: n.transition
         ? {
-            id: (n.transition as any).id,
-            fromStatus: (n.transition as any).fromStatus,
-            toStatus: (n.transition as any).toStatus,
-            createdAt: (n.transition as any).createdAt,
-          }
+          id: (n.transition as any).id,
+          fromStatus: (n.transition as any).fromStatus,
+          toStatus: (n.transition as any).toStatus,
+          createdAt: (n.transition as any).createdAt,
+        }
         : null,
     }));
 

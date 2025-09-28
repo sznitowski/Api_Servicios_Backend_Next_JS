@@ -1,29 +1,37 @@
-import { Column, CreateDateColumn, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+// src/modules/ai/ai-usage.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { User } from '../users/user.entity';
 
 @Entity('ai_usage')
 export class AIUsage {
   @PrimaryGeneratedColumn()
-  id!: number;
+  id: number;
 
+  // opcional: enlazamos el uso con el usuario (si hay sesión)
   @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'user_id' })
   user?: User | null;
 
-  @Column({ length: 80 })
-  model!: string;
+  @Column({ type: 'varchar', length: 120 })
+  model: string;
 
   @Column({ type: 'int', default: 0 })
-  promptChars!: number;
+  inputTokens: number;
 
   @Column({ type: 'int', default: 0 })
-  responseChars!: number;
+  outputTokens: number;
 
-  @Column({ length: 24 })
-  status!: 'ok' | 'error';
-
-  @Column({ type: 'int', default: 0 })
-  latencyMs!: number;
+  // decimal -> TypeORM lo devuelve como string (bien para $)
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  costUsd: string;
 
   @CreateDateColumn()
-  createdAt!: Date;
+  createdAt: Date;
 }

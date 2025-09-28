@@ -57,58 +57,44 @@ export class AiService {
    * @param prompt Texto a enviar
    * @param userId (opcional) para auditar
    */
-  async chat(prompt: string, userId?: number | null) {
+  async chat(prompt: string, userId?: number | null): Promise<string> {
+    const model = 'gpt-4o-mini'; // o el que uses
     const started = Date.now();
-    const model = this.model();
-    const promptChars = (prompt ?? '').length;
 
-    // ---- Retry / backoff (tu bloque) ----
-    for (let i = 0; i < 2; i++) {
-      try {
-        const r = await this.client.responses.create({
+    try {
+      const r = await this.client.responses.create({
+        model,
+        input: prompt,
+      });
+
+      const text = (r as any).output_text as string;
+
+      // Guardar uso (adaptado a la entidad AIUsage)
+      await this.usageRepo.save(
+        this.usageRepo.create({
+          user: userId ? ({ id: userId } as any) : null,
           model,
-          input: prompt,
-        });
+          inputTokens: prompt.length,           // aproximación por caracteres
+          outputTokens: (text ?? '').length,    // aproximación por caracteres
+          costUsd: '0',                         // o calcula si quieres
+        }),
+      );
 
-        const text = (r as any).output_text as string;
-        // Log OK
-        await this.usageRepo.save(
-          this.usageRepo.create({
-            user: userId ? ({ id: userId } as any) : null,
-            model,
-            promptChars,
-            responseChars: (text ?? '').length,
-            status: 'ok',
-            latencyMs: Date.now() - started,
-          }),
-        );
-        return text;
-      } catch (e: any) {
-        // 429 => un intento más
-        if ((e?.status === 429 || e?.code === 'insufficient_quota') && i < 1) {
-          await new Promise((res) => setTimeout(res, 1500));
-          continue;
-        }
-        // Log ERROR y propagar normalizado
-        await this.usageRepo.save(
-          this.usageRepo.create({
-            user: userId ? ({ id: userId } as any) : null,
-            model,
-            promptChars,
-            responseChars: 0,
-            status: 'error',
-            latencyMs: Date.now() - started,
-          }),
-        );
-        this.mapOpenAIError(e);
-      }
+      return text;
+    } catch (e: any) {
+      // Incluso en error, si quieres registrar el input
+      await this.usageRepo.save(
+        this.usageRepo.create({
+          user: userId ? ({ id: userId } as any) : null,
+          model,
+          inputTokens: prompt.length,
+          outputTokens: 0,
+          costUsd: '0',
+        }),
+      );
+
+      throw e;
     }
-
-    // Si por alguna razón cae acá:
-    throw new HttpException(
-      { message: 'AI provider error', error: 'Unknown' },
-      HttpStatus.BAD_GATEWAY,
-    );
   }
 
   async pingModels() {

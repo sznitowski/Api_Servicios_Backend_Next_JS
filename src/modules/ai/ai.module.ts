@@ -1,25 +1,30 @@
 // src/modules/ai/ai.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { AiService } from './ai.service';
-import { AiController } from './ai.controller';
-import { AIDiagnosticsService } from './ai.diagnostics.service';
-import { AIUsage } from './ai-usage.entity';
 
-// importa lo que ya usabas para diagnósticos si aplica…
+import { AiService } from './ai.service';
+import { AIDiagnosticsService } from './ai.diagnostics.service';
+import { AiController } from './ai.controller';
+
+import { AIUsage } from './ai-usage.entity';
+import { ServiceRequest } from '../request/request.entity';
+import { RequestTransition } from '../request/request-transition.entity';
+import { Notification } from '../notifications/notification.entity';
+import { NotificationPreferences } from '../notifications/notification-preferences.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AIUsage]),
-    // límite base del módulo (puede sobreescribirse por @Throttle en métodos)
-    ThrottlerModule.forRoot([{
-      ttl: 60_000,
-      limit: 30,
-    }]),
+    // Repos que inyectan AiService y AIDiagnosticsService
+    TypeOrmModule.forFeature([
+      AIUsage,                 // <- AIUsageRepository
+      ServiceRequest,          // <- ServiceRequestRepository
+      RequestTransition,       // <- RequestTransitionRepository
+      Notification,            // <- NotificationRepository
+      NotificationPreferences, // <- NotificationPreferencesRepository
+    ]),
   ],
   controllers: [AiController],
   providers: [AiService, AIDiagnosticsService],
-  exports: [AiService],
+  exports: [AiService, AIDiagnosticsService],
 })
 export class AiModule {}

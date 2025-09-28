@@ -44,6 +44,7 @@ export class NotificationsController {
     private readonly streams: NotificationStreamService,
   ) { }
 
+
   // userId desde el token
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
@@ -84,6 +85,30 @@ export class NotificationsController {
   readAll(@Req() req: any) {
     return this.service.markAll(this.uid(req));
   }
+
+  // 👉 PUT /notifications/me/seen -> marca como vistas (ids o todas)
+  @Put('me/seen')
+  @ApiOperation({ summary: 'Marcar notificaciones como vistas (por ids o todas)' })
+  @ApiOkResponse({ description: '{ ok: true, updated: number }' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        ids: { type: 'array', items: { type: 'number' } },
+        all: { type: 'boolean' },
+      },
+      example: { ids: [22, 21] },
+    },
+  })
+  async markSeen(
+    @Req() req: any,
+    @Body('ids') ids?: number[],
+    @Body('all') all?: boolean,
+  ) {
+    const updated = await this.service.markSeen(this.uid(req), ids, all);
+    return { ok: true, updated };
+  }
+
 
   // GET /notifications/me/prefs -> obtiene preferencias del usuario
   @ApiOperation({ summary: 'Obtener mis preferencias de notificaciones' })
@@ -152,9 +177,8 @@ export class NotificationsController {
       type: 'DEBUG',
       message: `poke @ ${new Date().toISOString()}`,
     };
-    this.streams.publish(userId, payload); 
+    this.streams.publish(userId, payload);
     return { ok: true };
   }
 
 }
-
