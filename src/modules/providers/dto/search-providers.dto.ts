@@ -14,11 +14,20 @@ import {
 } from 'class-validator';
 
 export class SearchProvidersDto {
-  @ApiProperty({ example: 1 })
+  /** Puede venir serviceTypeId o categoryId (al menos uno). */
+  @ApiPropertyOptional({ example: 1, description: 'Tipo de servicio (alternativo a categoryId)' })
   @Type(() => Number)
+  @IsOptional()
   @IsInt()
   @Min(1)
-  serviceTypeId!: number;
+  serviceTypeId?: number;
+
+  @ApiPropertyOptional({ example: 434, description: 'Rubro/categoría (alternativo a serviceTypeId)' })
+  @Type(() => Number)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  categoryId?: number;
 
   @ApiProperty({ example: -34.6 })
   @Type(() => Number)
@@ -37,7 +46,7 @@ export class SearchProvidersDto {
   @Min(0)
   radiusKm?: number;
 
-  /** —— Filtros nuevos —— */
+  /** —— Filtros —— */
 
   @ApiPropertyOptional({ example: 4.5, description: 'Mínimo promedio de rating (0–5)' })
   @Type(() => Number)
@@ -81,7 +90,7 @@ export class SearchProvidersDto {
   @MinLength(2)
   q?: string;
 
-  /** —— Orden, paginado —— */
+  /** —— Orden y paginado —— */
 
   @ApiPropertyOptional({ enum: ['distance', 'rating', 'price'], example: 'distance' })
   @IsOptional()
@@ -101,9 +110,4 @@ export class SearchProvidersDto {
   @IsInt()
   @Min(1)
   limit?: number;
-
-  // Permite buscar por rubro si todavía no cargaste service_types.
-  @IsOptional() @Type(() => Number) @IsInt()
-  categoryId?: number;
-
 }

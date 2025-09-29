@@ -1,4 +1,3 @@
-// src/modules/providers/providers.service.ts
 import {
   BadRequestException,
   Injectable,
@@ -28,7 +27,7 @@ export class ProvidersService {
     private readonly stRepo: Repository<ServiceType>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   /** Crea (si no existe) y devuelve el perfil del proveedor para un userId. */
   private async getOrCreateProfile(userId: number) {
@@ -77,7 +76,6 @@ export class ProvidersService {
     if (dto.bio !== undefined) patch.bio = dto.bio;
     if (dto.photoUrl !== undefined) patch.photoUrl = dto.photoUrl;
 
-    // si tu entidad tiene geolocalización:
     if ((dto as any).lat !== undefined) (patch as any).lat = (dto as any).lat;
     if ((dto as any).lng !== undefined) (patch as any).lng = (dto as any).lng;
     if ((dto as any).radiusKm !== undefined) (patch as any).radiusKm = (dto as any).radiusKm;
@@ -286,6 +284,7 @@ export class ProvidersService {
     // Base: pst (provider_service_types) + st (service_types) + addr (address del user)
     const baseQb = this.pstRepo
       .createQueryBuilder('pst')
+      .select([]) 
       .innerJoin('pst.provider', 'prov')
       .innerJoin('prov.user', 'u')
       .innerJoin('pst.serviceType', 'st')
@@ -300,15 +299,12 @@ export class ProvidersService {
       .addSelect('prov.photoUrl', 'photoUrl')
       .addSelect('prov.ratingAvg', 'ratingAvg')
       .addSelect('prov.ratingCount', 'ratingCount')
-      // ⬇︎ Precio mínimo (numérico) entre los service types que matchean
-      .addSelect('MIN(CAST(pst.basePrice AS DECIMAL(10,2)))', 'basePrice')
-      // ⬇︎ Un nombre de servicio de referencia (si hay varios, el mínimo lexicográfico)
-      .addSelect('MIN(st.name)', 'serviceTypeName')
+      .addSelect('MIN(CAST(pst.basePrice AS DECIMAL(10,2)))', 'basePrice') // agregado
+      .addSelect('MIN(st.name)', 'serviceTypeName')                         // agregado
       .addSelect('addr.lat', 'lat')
       .addSelect('addr.lng', 'lng')
       .addSelect(distanceExpr, 'distanceKm')
       .setParameters({ lat, lng })
-      // Group por proveedor (y columnas no agregadas)
       .groupBy('prov.id')
       .addGroupBy('u.id')
       .addGroupBy('addr.id')
@@ -329,47 +325,39 @@ export class ProvidersService {
     // Radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
-    // ---------- Filtros opcionales ----------
+    // Filtros opcionales
     if (typeof q.minRating === 'number') {
       baseQb.andWhere('CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating', {
         minRating: q.minRating,
       });
     }
-
     if (typeof q.minReviews === 'number') {
       baseQb.andWhere('prov.ratingCount >= :minReviews', { minReviews: q.minReviews });
     }
-
-    // Para filtros de precio, usamos las filas de pst (no el agregado) para que
-    // “exista” al menos una oferta del proveedor en ese rango.
     if (typeof q.minPrice === 'number') {
       baseQb.andWhere('pst.basePrice IS NOT NULL')
         .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) >= :minPrice', { minPrice: q.minPrice });
     }
-
     if (typeof q.maxPrice === 'number') {
       baseQb.andWhere('pst.basePrice IS NOT NULL')
         .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) <= :maxPrice', { maxPrice: q.maxPrice });
     }
-
     if (typeof q.hasPhoto === 'boolean') {
-      if (q.hasPhoto) {
-        baseQb.andWhere("(prov.photoUrl IS NOT NULL AND prov.photoUrl <> '')");
-      } else {
-        baseQb.andWhere("(prov.photoUrl IS NULL OR prov.photoUrl = '')");
-      }
+      baseQb.andWhere(
+        q.hasPhoto
+          ? "(prov.photoUrl IS NOT NULL AND prov.photoUrl <> '')"
+          : "(prov.photoUrl IS NULL OR prov.photoUrl = '')",
+      );
     }
-
     const term = (q.q ?? '').trim();
     if (term) {
       baseQb.andWhere('(prov.displayName LIKE :q OR u.name LIKE :q)', { q: `%${term}%` });
     }
 
-    // ---------- Orden ----------
+    // Orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
-      // Orden por precio agregado (NULL al final)
       baseQb
         .orderBy('CASE WHEN basePrice IS NULL THEN 1 ELSE 0 END', 'ASC')
         .addOrderBy('basePrice', 'ASC')
@@ -378,7 +366,7 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
-    // ---------- Total y página ----------
+    // Total y página
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
@@ -391,8 +379,8 @@ export class ProvidersService {
       photoUrl: r.photoUrl ?? null,
       ratingAvg: r.ratingAvg,
       ratingCount: Number(r.ratingCount ?? 0),
-      basePrice: r.basePrice as string | null,            // precio “desde”
-      serviceTypeName: r.serviceTypeName ?? null,         // referencia
+      basePrice: r.basePrice as string | null,
+      serviceTypeName: r.serviceTypeName ?? null,
       distanceKm: Number(r.distanceKm?.toString() ?? 0),
       location: { lat: Number(r.lat), lng: Number(r.lng) },
     }));

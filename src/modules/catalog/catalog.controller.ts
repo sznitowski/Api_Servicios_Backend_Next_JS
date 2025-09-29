@@ -1,4 +1,6 @@
+// src/modules/catalog/catalog.controller.ts
 import { Controller, Get, Query } from '@nestjs/common';
+import { Public } from '../../common/decorators/public.decorator';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
 import { Category } from './categories/category.entity';
@@ -7,10 +9,8 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
 import {
   ApiTags,
-  ApiBearerAuth,
   ApiOperation,
   ApiOkResponse,
-  ApiUnauthorizedResponse,
   ApiQuery,
 } from '@nestjs/swagger';
 
@@ -23,7 +23,6 @@ class ServiceTypesQueryDto {
 }
 
 @ApiTags('catalog')
-@ApiBearerAuth() // ⬅️ si es público, quitá esta línea
 @Controller('catalog')
 export class CatalogController {
   constructor(
@@ -49,7 +48,7 @@ export class CatalogController {
       ],
     },
   })
-  @ApiUnauthorizedResponse({ description: 'No autenticado.' }) // ⬅️ quitá si es público
+  @Public()
   @Get('categories')
   async categories() {
     const categories = await this.cats.find({
@@ -105,7 +104,7 @@ export class CatalogController {
       ],
     },
   })
-  @ApiUnauthorizedResponse({ description: 'No autenticado.' }) // ⬅️ quitá si es público
+  @Public()
   @Get('service-types')
   async serviceTypes(@Query() q: ServiceTypesQueryDto) {
     const where: any = { active: true };

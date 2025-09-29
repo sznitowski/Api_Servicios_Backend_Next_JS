@@ -145,9 +145,10 @@ export class ProvidersController {
   }
 
   // ---------- Búsqueda pública ----------
-  @ApiOperation({ summary: 'Buscar proveedores por tipo y radio (con filtros)' })
+  @ApiOperation({ summary: 'Buscar proveedores por tipo **o** por rubro (con filtros)' })
   @ApiOkResponse({ description: 'Listado paginado con distancia y precio base' })
-  @ApiQuery({ name: 'serviceTypeId', required: true, type: Number })
+  @ApiQuery({ name: 'serviceTypeId', required: false, type: Number })
+  @ApiQuery({ name: 'categoryId', required: false, type: Number }) // ⬅ nuevo
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
   @ApiQuery({ name: 'radiusKm', required: false, type: Number, example: 10 })
