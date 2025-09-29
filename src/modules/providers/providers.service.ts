@@ -28,7 +28,7 @@ export class ProvidersService {
     private readonly stRepo: Repository<ServiceType>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   /** Crea (si no existe) y devuelve el perfil del proveedor para un userId. */
   private async getOrCreateProfile(userId: number) {
@@ -64,9 +64,8 @@ export class ProvidersService {
 
   // -------- Perfil propio --------
   async getMyProfile(userId: number) {
-    // ❗ Fix: usar profileRepo y garantizar existencia
     const p = await this.getOrCreateProfile(userId);
-    return p; // si querés, podés mapear a un DTO público aquí
+    return p;
   }
 
   async updateMyProfile(userId: number, dto: UpdateProviderProfileDto) {
@@ -260,7 +259,6 @@ export class ProvidersService {
 
   // -------- Búsqueda --------
   async searchProviders(q: SearchProvidersDto) {
-    const serviceTypeId = Number(q.serviceTypeId);
     const lat = Number(q.lat);
     const lng = Number(q.lng);
     const radiusKm = Number(q.radiusKm ?? 10);
@@ -268,8 +266,14 @@ export class ProvidersService {
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
     const sort = (q.sort ?? 'distance') as 'distance' | 'rating' | 'price';
 
-    if (Number.isNaN(serviceTypeId) || Number.isNaN(lat) || Number.isNaN(lng)) {
-      throw new BadRequestException('serviceTypeId, lat y lng son requeridos');
+    const serviceTypeId = q.serviceTypeId != null ? Number(q.serviceTypeId) : null;
+    const categoryId = q.categoryId != null ? Number(q.categoryId) : null;
+
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      throw new BadRequestException('lat y lng son requeridos');
+    }
+    if (!serviceTypeId && !categoryId) {
+      throw new BadRequestException('Debe indicar serviceTypeId o categoryId');
     }
 
     const distanceExpr = `
@@ -279,6 +283,7 @@ export class ProvidersService {
       )
     `;
 
+    // Base: pst (provider_service_types) + st (service_types) + addr (address del user)
     const baseQb = this.pstRepo
       .createQueryBuilder('pst')
       .innerJoin('pst.provider', 'prov')
@@ -289,31 +294,37 @@ export class ProvidersService {
         'addr',
         'addr.user_id = u.id AND addr.is_default = 1 AND addr.lat IS NOT NULL AND addr.lng IS NOT NULL',
       )
-      .where('pst.active = 1 AND st.id = :stId', { stId: serviceTypeId })
+      .where('pst.active = 1')
       .addSelect('u.id', 'providerUserId')
       .addSelect('prov.displayName', 'displayName')
       .addSelect('prov.photoUrl', 'photoUrl')
       .addSelect('prov.ratingAvg', 'ratingAvg')
       .addSelect('prov.ratingCount', 'ratingCount')
-      .addSelect('pst.basePrice', 'basePrice')
-      .addSelect('st.name', 'serviceTypeName')
+      // ⬇︎ Precio mínimo (numérico) entre los service types que matchean
+      .addSelect('MIN(CAST(pst.basePrice AS DECIMAL(10,2)))', 'basePrice')
+      // ⬇︎ Un nombre de servicio de referencia (si hay varios, el mínimo lexicográfico)
+      .addSelect('MIN(st.name)', 'serviceTypeName')
       .addSelect('addr.lat', 'lat')
       .addSelect('addr.lng', 'lng')
       .addSelect(distanceExpr, 'distanceKm')
       .setParameters({ lat, lng })
-      .groupBy('pst.id')
-      .addGroupBy('prov.id')
+      // Group por proveedor (y columnas no agregadas)
+      .groupBy('prov.id')
       .addGroupBy('u.id')
-      .addGroupBy('st.id')
       .addGroupBy('addr.id')
       .addGroupBy('prov.displayName')
       .addGroupBy('prov.photoUrl')
       .addGroupBy('prov.ratingAvg')
       .addGroupBy('prov.ratingCount')
-      .addGroupBy('pst.basePrice')
-      .addGroupBy('st.name')
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
+
+    // Filtro por service type o por categoría
+    if (serviceTypeId) {
+      baseQb.andWhere('st.id = :stId', { stId: serviceTypeId });
+    } else if (categoryId) {
+      baseQb.andWhere('st.category_id = :catId', { catId: categoryId });
+    }
 
     // Radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
@@ -329,6 +340,8 @@ export class ProvidersService {
       baseQb.andWhere('prov.ratingCount >= :minReviews', { minReviews: q.minReviews });
     }
 
+    // Para filtros de precio, usamos las filas de pst (no el agregado) para que
+    // “exista” al menos una oferta del proveedor en ese rango.
     if (typeof q.minPrice === 'number') {
       baseQb.andWhere('pst.basePrice IS NOT NULL')
         .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) >= :minPrice', { minPrice: q.minPrice });
@@ -356,10 +369,10 @@ export class ProvidersService {
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
-      // Orden numérico por precio; NULL al final
+      // Orden por precio agregado (NULL al final)
       baseQb
-        .orderBy('CASE WHEN pst.basePrice IS NULL THEN 1 ELSE 0 END', 'ASC')
-        .addOrderBy('CAST(pst.basePrice AS DECIMAL(10,2))', 'ASC')
+        .orderBy('CASE WHEN basePrice IS NULL THEN 1 ELSE 0 END', 'ASC')
+        .addOrderBy('basePrice', 'ASC')
         .addOrderBy('distanceKm', 'ASC');
     } else {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
@@ -378,9 +391,9 @@ export class ProvidersService {
       photoUrl: r.photoUrl ?? null,
       ratingAvg: r.ratingAvg,
       ratingCount: Number(r.ratingCount ?? 0),
-      basePrice: r.basePrice as string | null,
-      serviceTypeName: r.serviceTypeName,
-      distanceKm: Number(r.distanceKm?.toFixed?.(2) ?? r.distanceKm),
+      basePrice: r.basePrice as string | null,            // precio “desde”
+      serviceTypeName: r.serviceTypeName ?? null,         // referencia
+      distanceKm: Number(r.distanceKm?.toString() ?? 0),
       location: { lat: Number(r.lat), lng: Number(r.lng) },
     }));
 
@@ -389,5 +402,4 @@ export class ProvidersService {
       meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   }
-
 }

@@ -101,4 +101,9 @@ export class SearchProvidersDto {
   @IsInt()
   @Min(1)
   limit?: number;
+
+  // Permite buscar por rubro si todavía no cargaste service_types.
+  @IsOptional() @Type(() => Number) @IsInt()
+  categoryId?: number;
+
 }

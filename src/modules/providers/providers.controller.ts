@@ -12,12 +12,11 @@ import {
   Param,
   ParseIntPipe,
 } from '@nestjs/common';
-// ❌ Quita esto: import { AuthGuard } from '@nestjs/passport';
+
 import { ProvidersService } from './providers.service';
 
-// ✅ Usa tu guard personalizado
+// Guard + decorator
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-// ✅ Y el decorator Public
 import { Public } from '../../common/decorators/public.decorator';
 
 // DTOs
@@ -44,7 +43,6 @@ import {
 
 @ApiTags('providers')
 @ApiBearerAuth()
-// ✅ Aplica el guard a TODO el controller…
 @UseGuards(JwtAuthGuard)
 @Controller('providers')
 export class ProvidersController {
@@ -167,7 +165,6 @@ export class ProvidersController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
-  // ✅ ESTA ruta queda PÚBLICA
   @Public()
   @Get('search')
   search(@Query() q: SearchProvidersDto) {
