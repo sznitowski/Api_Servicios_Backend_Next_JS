@@ -54,7 +54,7 @@ export class RequestsController {
   constructor(
     private readonly service: RequestsService,
     private readonly ratings: RatingsService,
-  ) { }
+  ) {}
 
   // Helper: toma userId desde el token (algunos tests usan `id`, otros `sub`)
   private uid(req: any): number {
@@ -131,8 +131,6 @@ export class RequestsController {
   // MIS SOLICITUDES (3 variantes: unificada y legacy por rol)
   // ===========================================================================
 
-  // GET /requests/mine -> unificado (por default infiere el "as" según el rol)
-  // Usa MineQueryDto (as, status, page, limit)
   @ApiOperation({ summary: 'Mis solicitudes (unificado, CLIENT o PROVIDER)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({ name: 'as', required: false, enum: ['client', 'provider'] })
@@ -149,7 +147,6 @@ export class RequestsController {
     return this.service.listMineByRole(this.uid(req), role, q);
   }
 
-  // GET /requests/me -> (LEGACY) como CLIENT
   @ApiOperation({ summary: 'Mis solicitudes como CLIENT (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
@@ -164,7 +161,6 @@ export class RequestsController {
     return this.service.listByClient(this.uid(req), q);
   }
 
-  // GET /requests/provider/me -> (LEGACY) como PROVIDER
   @ApiOperation({ summary: 'Mis solicitudes como PROVIDER (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
@@ -183,7 +179,6 @@ export class RequestsController {
   // GET Y TIMELINE
   // ===========================================================================
 
-  // GET /requests/:id -> detalle con relaciones
   @ApiOperation({ summary: 'Obtener un request por id' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request encontrado' })
@@ -194,7 +189,6 @@ export class RequestsController {
     return this.service.get(id);
   }
 
-  // GET /requests/:id/timeline -> historial de transiciones
   @ApiOperation({ summary: 'Ver timeline de un request' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Transiciones del request' })
@@ -206,10 +200,9 @@ export class RequestsController {
   }
 
   // ===========================================================================
-  // TRANSICIONES (claim/accept/start/complete/cancel/admin-cancel)
+  // TRANSICIONES
   // ===========================================================================
 
-  // POST /requests/:id/claim -> proveedor ofrece tomar el request
   @ApiOperation({ summary: 'Claim (proveedor ofrece tomar el request)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: OfferDto })
@@ -228,7 +221,6 @@ export class RequestsController {
     return this.service.claim(id, this.uid(req), body.priceOffered);
   }
 
-  // POST /requests/:id/accept -> cliente acepta la oferta
   @ApiOperation({ summary: 'Accept (cliente acepta la oferta)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: AcceptDto })
@@ -247,7 +239,6 @@ export class RequestsController {
     return this.service.accept(id, this.uid(req), body.priceAgreed);
   }
 
-  // POST /requests/:id/start -> proveedor inicia el trabajo
   @ApiOperation({ summary: 'Start (proveedor inicia el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request en progreso' })
@@ -261,7 +252,6 @@ export class RequestsController {
     return this.service.start(id, this.uid(req));
   }
 
-  // POST /requests/:id/complete -> proveedor marca como DONE
   @ApiOperation({ summary: 'Complete (proveedor completa el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request completado' })
@@ -275,8 +265,6 @@ export class RequestsController {
     return this.service.complete(id, this.uid(req));
   }
 
-  // POST /requests/:id/cancel -> cliente/proveedor cancela con motivo (opcional)
-  // Usa reglas por rol: CLIENT (PENDING|OFFERED|ACCEPTED), PROVIDER (OFFERED|ACCEPTED)
   @ApiOperation({ summary: 'Cancelar (cliente o proveedor del request)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: CancelRequestDto })
@@ -296,7 +284,6 @@ export class RequestsController {
     return this.service.cancel(id, this.uid(req), role, body);
   }
 
-  // POST /requests/:id/admin-cancel -> fuerza cancelación (sin restricciones de rol/estado)
   @ApiOperation({ summary: 'Cancelar como admin (auditable en timeline)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request cancelado por admin' })
@@ -313,7 +300,6 @@ export class RequestsController {
   // RATING
   // ===========================================================================
 
-  // POST /requests/:id/rate -> el CLIENT califica el trabajo
   @ApiOperation({ summary: 'Calificar trabajo (CLIENT)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: RateRequestDto })
@@ -331,7 +317,6 @@ export class RequestsController {
     return this.ratings.rateRequest(id, this.uid(req), body);
   }
 
-  // Alias RESTful: POST /requests/:id/rating
   @ApiOperation({ summary: 'Calificar trabajo (alias de /:id/rate)' })
   @ApiBody({ type: CreateRatingDto })
   @UseGuards(RolesGuard)
@@ -349,7 +334,6 @@ export class RequestsController {
   // RESÚMENES
   // ===========================================================================
 
-  // GET /requests/me/summary -> resumen de mis solicitudes como CLIENT
   @ApiOperation({ summary: 'Resumen de mis solicitudes (CLIENT)' })
   @ApiOkResponse({
     description: 'Conteo por estado',
@@ -372,7 +356,6 @@ export class RequestsController {
     return this.service.mineSummary({ userId: this.uid(req), as: 'client' });
   }
 
-  // GET /requests/provider/me/summary -> resumen de mis solicitudes como PROVIDER
   @ApiOperation({ summary: 'Resumen de mis solicitudes (PROVIDER)' })
   @ApiOkResponse({
     description: 'Conteo por estado',

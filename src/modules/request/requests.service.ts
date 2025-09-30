@@ -46,8 +46,8 @@ export class RequestsService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
 
-     private readonly notifications: NotificationsService,
-  ) { }
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // FEED PARA PROVEEDORES
@@ -58,6 +58,7 @@ export class RequestsService {
    * - Excluye pedidos del propio proveedor
    * - Requiere que el proveedor ofrezca ese service_type (provider_service_types)
    * - Excluye pedidos con los que el proveedor ya interactuó (hay transición suya)
+   * - Si el pedido está “apuntado” a un proveedor (providerId set), sólo lo ve ese proveedor
    */
   async feed(
     args: { lat: number; lng: number; radiusKm: number },
@@ -109,6 +110,9 @@ export class RequestsService {
         { pid2: providerId },
       )
 
+      // Si está “apuntado” a un proveedor, sólo lo ve ese proveedor
+      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', { self2: providerId })
+
       // Dentro del radio solicitado
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm })
       .orderBy('distance', 'ASC')
@@ -124,14 +128,9 @@ export class RequestsService {
   // ---------------------------------------------------------------------------
   // TIMELINE / TRANSICIONES
   // ---------------------------------------------------------------------------
-  /**
-   * Helper interno para registrar una transición en el timeline.
-   * Guarda: from -> to, actor, precios (si aplica) y notas (motivo libre).
-   */
 
-
-// Guarda la transición en DB y dispara notificaciones a los destinatarios
- private async logTransition(args: {
+  // Guarda la transición en DB y dispara notificaciones a los destinatarios
+  private async logTransition(args: {
     request: ServiceRequest;
     actorId?: number;
     from: Status;
@@ -157,18 +156,15 @@ export class RequestsService {
       where: { id: args.request.id },
       relations: { client: true, provider: true },
     });
-    if (!reqForNotify) return; // no rompemos el flujo si falló
+    if (!reqForNotify) return;
 
-    // ✅ Pasamos actorId explícito (por si la relación actor no viene cargada)
-    await this.notifications.notifyTransition(savedTransition, reqForNotify, args.actorId ?? null);
+    await this.notifications.notifyTransition(
+      savedTransition,
+      reqForNotify,
+      args.actorId ?? null,
+    );
   }
 
-
-
-  /**
-   * Historial (timeline) ordenado por fecha ascendente.
-   * Incluye datos básicos del actor.
-   */
   async timeline(requestId: number) {
     return this.trRepo.find({
       where: { request: { id: requestId } as any },
@@ -192,6 +188,8 @@ export class RequestsService {
   // ---------------------------------------------------------------------------
   /**
    * Crea un Request PENDING a nombre de un cliente.
+   * Si viene `providerUserId`, se asigna ese proveedor pero sigue PENDING (luego
+   * el proveedor puede hacer `claim` para pasar a OFFERED).
    */
   async create(dto: CreateRequestDto, clientId: number) {
     const serviceType = await this.stRepo.findOne({ where: { id: dto.serviceTypeId } });
@@ -200,8 +198,20 @@ export class RequestsService {
     const client = await this.userRepo.findOne({ where: { id: clientId } });
     if (!client) throw new NotFoundException('Client not found');
 
+    let provider: User | null = null;
+    if (dto.providerUserId != null) {
+      provider = await this.userRepo.findOne({ where: { id: dto.providerUserId } });
+      if (!provider) throw new NotFoundException('Provider not found');
+      if (provider.id === client.id) {
+        throw new BadRequestException('Client and provider cannot be the same user');
+      }
+      // Nota: validación de que el proveedor ofrezca el serviceType se puede
+      // agregar aquí (provider_service_types). Lo omitimos por simplicidad.
+    }
+
     const r = this.repo.create({
       client,
+      provider: provider ?? null,
       serviceType,
       title: dto.title,
       description: dto.description,
@@ -232,13 +242,7 @@ export class RequestsService {
   // ---------------------------------------------------------------------------
   // TRANSICIONES DE ESTADO (claim / accept / start / complete / cancel)
   // ---------------------------------------------------------------------------
-  /**
-   * claim: un proveedor se postula/ofrece para realizar un request.
-   * Reglas:
-   *  - No puede clamear su propio pedido
-   *  - Solo PENDING puede pasar a OFFERED
-   *  - Evita reclamos duplicados
-   */
+
   async claim(id: number, providerId: number, priceOffered?: number) {
     const r = await this.get(id);
 
@@ -277,12 +281,6 @@ export class RequestsService {
     return saved;
   }
 
-  /**
-   * accept: el cliente acepta una oferta.
-   * Reglas:
-   *  - Solo OFFERED -> ACCEPTED
-   *  - Puede registrar priceAgreed
-   */
   async accept(id: number, clientId: number, priceAgreed?: number) {
     const r = await this.get(id);
     if (r.client.id !== clientId) throw new ForbiddenException('Not your request');
@@ -305,12 +303,6 @@ export class RequestsService {
     return saved;
   }
 
-  /**
-   * start: el proveedor inicia el trabajo.
-   * Reglas:
-   *  - Solo el proveedor asignado
-   *  - Solo ACCEPTED -> IN_PROGRESS
-   */
   async start(id: number, providerId: number) {
     const r = await this.get(id);
     if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
@@ -326,12 +318,6 @@ export class RequestsService {
     return saved;
   }
 
-  /**
-   * complete: el proveedor marca el trabajo como finalizado.
-   * Reglas:
-   *  - Solo el proveedor asignado
-   *  - Solo IN_PROGRESS -> DONE
-   */
   async complete(id: number, providerId: number) {
     const r = await this.get(id);
     if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
@@ -347,14 +333,6 @@ export class RequestsService {
     return saved;
   }
 
-  /**
-   * cancel: cancela un request con **motivo** y validación por **rol**.
-   * Reglas por defecto:
-   *  - CLIENTE puede cancelar: PENDING | OFFERED | ACCEPTED
-   *  - PROVEEDOR puede cancelar: OFFERED | ACCEPTED
-   *  - Nadie puede cancelar DONE
-   * Guarda el motivo en las notas del timeline.
-   */
   async cancel(
     id: number,
     actorId: number,
@@ -399,10 +377,6 @@ export class RequestsService {
     return saved;
   }
 
-  /**
-   * adminCancel: fuerza cancelación por un usuario administrador
-   * y deja rastro en timeline.
-   */
   async adminCancel(id: number, adminUserId: number) {
     const r = await this.get(id);
     const from: Status = r.status;
@@ -421,11 +395,9 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // LISTADOS: CLIENTE / PROVEEDOR / ABIERTOS / MIS SOLICITUDES
+  // LISTADOS
   // ---------------------------------------------------------------------------
-  /**
-   * listByClient: listado paginado de requests del cliente actual.
-   */
+
   async listByClient(clientId: number, q: ListRequestsQueryDto) {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
@@ -447,9 +419,6 @@ export class RequestsService {
     };
   }
 
-  /**
-   * listByProvider: listado paginado de requests asignados al proveedor actual.
-   */
   async listByProvider(providerUserId: number, q: ListRequestsQueryDto) {
     const page = Math.max(1, Number(q.page ?? 1));
     const limit = Math.min(50, Math.max(1, Number(q.limit ?? 20)));
@@ -473,7 +442,9 @@ export class RequestsService {
 
   /**
    * open: pedidos abiertos cerca (paginado) para el proveedor actual.
-   * Soporta sort por 'distance' o 'createdAt' y filtro por serviceTypeId.
+   * - sort por 'distance' o 'createdAt'
+   * - filtro por serviceTypeId
+   * - si el pedido está “apuntado” a un proveedor, sólo lo ve ese proveedor
    */
   async open(
     q: {
@@ -520,6 +491,7 @@ export class RequestsService {
          )`,
         { pid: providerId },
       )
+      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', { self2: providerId })
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm });
 
     if (q.serviceTypeId) {
@@ -559,13 +531,6 @@ export class RequestsService {
   // ---------------------------------------------------------------------------
   // NUEVA IMPLEMENTACIÓN: "MIS SOLICITUDES" con MineQueryDto
   // ---------------------------------------------------------------------------
-  /**
-   * listMineByRole: listado “mis solicitudes” reutilizando MineQueryDto.
-   * - as: 'client' | 'provider' (si no viene, se infiere por rol del usuario)
-   * - status: filtro opcional por estado
-   * - page/limit: paginado estándar
-   * Devuelve items “sanitizados” + meta.
-   */
   async listMineByRole(userId: number, userRole: UserRole, q: MineQueryDto) {
     const as: 'client' | 'provider' =
       q.as ?? (userRole === UserRole.PROVIDER ? 'provider' : 'client');
@@ -608,10 +573,9 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // LEGADO / AUX (se mantienen para compatibilidad con controladores actuales)
+  // LEGADO / AUX
   // ---------------------------------------------------------------------------
 
-  /** LEGACY: listado de mis requests usando ListMyRequestsDto. */
   async listMine(userId: number, q: ListMyRequestsDto) {
     const page = q.page ?? 1;
     const limit = q.limit ?? 20;
@@ -636,7 +600,6 @@ export class RequestsService {
     return { items, total, page, limit };
   }
 
-  /** LEGACY: variante con shape de respuesta paginada. */
   async mine({
     userId,
     as,
@@ -681,7 +644,6 @@ export class RequestsService {
     };
   }
 
-  /** LEGACY: resumen de mis requests agrupado por estado. */
   async mineSummary({
     userId,
     as,
@@ -720,9 +682,8 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // Consultas rápidas auxiliares (se mantienen)
+  // Consultas rápidas auxiliares
   // ---------------------------------------------------------------------------
-  /** LEGACY: lista “mis pedidos como cliente” (ordenado) */
   findMyClient(clientId: number) {
     return this.repo.find({
       where: { client: { id: clientId } },
@@ -731,7 +692,6 @@ export class RequestsService {
     });
   }
 
-  /** LEGACY: lista “mis pedidos como proveedor asignado” (ordenado) */
   findMyProvider(providerId: number) {
     return this.repo.find({
       where: { provider: { id: providerId } },
@@ -739,5 +699,4 @@ export class RequestsService {
       relations: { client: true, provider: true, serviceType: true },
     });
   }
-  
 }
