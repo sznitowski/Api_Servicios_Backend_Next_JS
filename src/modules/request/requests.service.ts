@@ -22,6 +22,9 @@ import { MineQueryDto } from './dto/mine.dto';
 import { CancelRequestDto } from './dto/cancel-request.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
+// ⚡ NUEVO: entidad para Idempotency-Key
+import { RequestIdempotencyKey } from './request.entity';
+
 // Estados válidos para un Request (coinciden con la entidad)
 type Status =
   | 'PENDING'
@@ -46,6 +49,10 @@ export class RequestsService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
 
+    // ⚡ NUEVO: repo de claves idempotentes
+    @InjectRepository(RequestIdempotencyKey)
+    private readonly idemRepo: Repository<RequestIdempotencyKey>,
+
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -58,7 +65,7 @@ export class RequestsService {
    * - Excluye pedidos del propio proveedor
    * - Requiere que el proveedor ofrezca ese service_type (provider_service_types)
    * - Excluye pedidos con los que el proveedor ya interactuó (hay transición suya)
-   * - Si el pedido está “apuntado” a un proveedor (providerId set), sólo lo ve ese proveedor
+   * - Si el pedido está “apuntado” a un proveedor (providerId), sólo lo ve ese proveedor
    */
   async feed(
     args: { lat: number; lng: number; radiusKm: number },
@@ -83,11 +90,7 @@ export class RequestsService {
       .leftJoinAndSelect('r.serviceType', 'st')
       .addSelect(haversine, 'distance')
       .where('r.status = :pending', { pending: 'PENDING' })
-
-      // No mostrar mis propios pedidos
       .andWhere('client.id <> :self', { self: providerId })
-
-      // Tipos que ofrece el proveedor (activos)
       .andWhere(
         `EXISTS (
           SELECT 1
@@ -98,8 +101,6 @@ export class RequestsService {
         )`,
         { pid: providerId },
       )
-
-      // Aún no interactuó con ese request
       .andWhere(
         `NOT EXISTS (
           SELECT 1
@@ -109,11 +110,9 @@ export class RequestsService {
         )`,
         { pid2: providerId },
       )
-
-      // Si está “apuntado” a un proveedor, sólo lo ve ese proveedor
-      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', { self2: providerId })
-
-      // Dentro del radio solicitado
+      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', {
+        self2: providerId,
+      })
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm })
       .orderBy('distance', 'ASC')
       .limit(50);
@@ -129,7 +128,7 @@ export class RequestsService {
   // TIMELINE / TRANSICIONES
   // ---------------------------------------------------------------------------
 
-  // Guarda la transición en DB y dispara notificaciones a los destinatarios
+  // Guarda transición + notifica
   private async logTransition(args: {
     request: ServiceRequest;
     actorId?: number;
@@ -151,7 +150,7 @@ export class RequestsService {
 
     const savedTransition = await this.trRepo.save(row);
 
-    // 🔁 Re-cargamos el request con relaciones para notificaciones
+    // Re-cargamos el request para notificaciones
     const reqForNotify = await this.repo.findOne({
       where: { id: args.request.id },
       relations: { client: true, provider: true },
@@ -184,15 +183,17 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // CRUD BÁSICO DE REQUESTS
+  // CRUD BÁSICO + **NUEVO** createIdempotent
   // ---------------------------------------------------------------------------
+
   /**
-   * Crea un Request PENDING a nombre de un cliente.
-   * Si viene `providerUserId`, se asigna ese proveedor pero sigue PENDING (luego
-   * el proveedor puede hacer `claim` para pasar a OFFERED).
+   * Crea un Request PENDING normal (sin idempotencia).
+   * Si viene `providerUserId`, se asigna ese proveedor pero sigue PENDING.
    */
   async create(dto: CreateRequestDto, clientId: number) {
-    const serviceType = await this.stRepo.findOne({ where: { id: dto.serviceTypeId } });
+    const serviceType = await this.stRepo.findOne({
+      where: { id: dto.serviceTypeId },
+    });
     if (!serviceType) throw new NotFoundException('Service type not found');
 
     const client = await this.userRepo.findOne({ where: { id: clientId } });
@@ -200,13 +201,15 @@ export class RequestsService {
 
     let provider: User | null = null;
     if (dto.providerUserId != null) {
-      provider = await this.userRepo.findOne({ where: { id: dto.providerUserId } });
+      provider = await this.userRepo.findOne({
+        where: { id: dto.providerUserId },
+      });
       if (!provider) throw new NotFoundException('Provider not found');
       if (provider.id === client.id) {
-        throw new BadRequestException('Client and provider cannot be the same user');
+        throw new BadRequestException(
+          'Client and provider cannot be the same user',
+        );
       }
-      // Nota: validación de que el proveedor ofrezca el serviceType se puede
-      // agregar aquí (provider_service_types). Lo omitimos por simplicidad.
     }
 
     const r = this.repo.create({
@@ -223,8 +226,114 @@ export class RequestsService {
       status: 'PENDING',
     });
 
-    const saved = await this.repo.save(r);
-    return saved;
+    return this.repo.save(r);
+  }
+
+  /**
+   * **Nuevo**: Crea un Request de forma **idempotente** usando `idempotencyKey`.
+   * - Si `idempotencyKey` es `undefined` → se comporta como `create()`.
+   * - Si la clave ya existe → devuelve el mismo request (sin duplicar).
+   * - Con transacción + UNIQUE en `request_idempotency_keys.key`
+   *   (si hay carrera y choca `ER_DUP_ENTRY`, buscamos y devolvemos el existente).
+   */
+  async createIdempotent(
+    dto: CreateRequestDto,
+    clientId: number,
+    idempotencyKey?: string,
+  ) {
+    // Sin clave → creación normal
+    if (!idempotencyKey) return this.create(dto, clientId);
+
+    const normalizedKey = String(idempotencyKey).slice(0, 100).trim();
+
+    return this.repo.manager.transaction(async (em) => {
+      const idemRepo = em.getRepository(RequestIdempotencyKey);
+      const reqRepo = em.getRepository(ServiceRequest);
+      const stRepo = em.getRepository(ServiceType);
+      const userRepo = em.getRepository(User);
+
+      // 1) Si la clave ya existe, devolvemos el request asociado
+      const existingKey = await idemRepo.findOne({
+        where: { key: normalizedKey },
+        relations: { request: true },
+      });
+      if (existingKey) {
+        const r = await reqRepo.findOne({
+          where: { id: existingKey.request.id },
+          relations: { client: true, provider: true, serviceType: true },
+        });
+        if (!r) throw new NotFoundException('Request not found for key');
+        return r; // reintento: devolvemos el mismo
+      }
+
+      // 2) Creamos el request
+      const serviceType = await stRepo.findOne({
+        where: { id: dto.serviceTypeId },
+      });
+      if (!serviceType) throw new NotFoundException('Service type not found');
+
+      const client = await userRepo.findOne({ where: { id: clientId } });
+      if (!client) throw new NotFoundException('Client not found');
+
+      let provider: User | null = null;
+      if (dto.providerUserId != null) {
+        provider = await userRepo.findOne({
+          where: { id: dto.providerUserId },
+        });
+        if (!provider) throw new NotFoundException('Provider not found');
+        if (provider.id === client.id) {
+          throw new BadRequestException(
+            'Client and provider cannot be the same user',
+          );
+        }
+      }
+
+      const r = reqRepo.create({
+        client,
+        provider: provider ?? null,
+        serviceType,
+        title: dto.title,
+        description: dto.description,
+        address: dto.address,
+        lat: dto.lat,
+        lng: dto.lng,
+        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+        priceOffered:
+          dto.priceOffered != null ? String(dto.priceOffered) : null,
+        status: 'PENDING',
+      });
+
+      const saved = await reqRepo.save(r);
+
+      // 3) Guardamos la clave → UNIQUE(key)
+      const k = idemRepo.create({
+        key: normalizedKey,
+        user: { id: clientId } as any,
+        request: saved,
+      });
+
+      try {
+        await idemRepo.save(k);
+      } catch (e: any) {
+        // Carrera: si otro proceso insertó la misma key justo antes
+        if (e?.code === 'ER_DUP_ENTRY') {
+          const again = await idemRepo.findOne({
+            where: { key: normalizedKey },
+            relations: { request: true },
+          });
+          if (again?.request) {
+            const same = await reqRepo.findOne({
+              where: { id: again.request.id },
+              relations: { client: true, provider: true, serviceType: true },
+            });
+            if (same) return same;
+          }
+        }
+        throw e;
+      }
+
+      return saved;
+    });
   }
 
   /**
@@ -240,7 +349,7 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // TRANSICIONES DE ESTADO (claim / accept / start / complete / cancel)
+  // TRANSICIONES (claim / accept / start / complete / cancel)
   // ---------------------------------------------------------------------------
 
   async claim(id: number, providerId: number, priceOffered?: number) {
@@ -265,7 +374,8 @@ export class RequestsService {
 
     const from: Status = r.status;
     r.provider = provider;
-    r.priceOffered = priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
+    r.priceOffered =
+      priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
     r.status = 'OFFERED';
 
     const saved = await this.repo.save(r);
@@ -283,8 +393,10 @@ export class RequestsService {
 
   async accept(id: number, clientId: number, priceAgreed?: number) {
     const r = await this.get(id);
-    if (r.client.id !== clientId) throw new ForbiddenException('Not your request');
-    if (r.status !== 'OFFERED') throw new BadRequestException('Only OFFERED can be accepted');
+    if (r.client.id !== clientId)
+      throw new ForbiddenException('Not your request');
+    if (r.status !== 'OFFERED')
+      throw new BadRequestException('Only OFFERED can be accepted');
 
     const from: Status = r.status;
     if (priceAgreed != null) r.priceAgreed = String(priceAgreed);
@@ -305,30 +417,44 @@ export class RequestsService {
 
   async start(id: number, providerId: number) {
     const r = await this.get(id);
-    if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
-    if (r.status !== 'ACCEPTED') throw new BadRequestException('Only ACCEPTED can start');
+    if (!r.provider || r.provider.id !== providerId)
+      throw new ForbiddenException('Not your assignment');
+    if (r.status !== 'ACCEPTED')
+      throw new BadRequestException('Only ACCEPTED can start');
 
     const from: Status = r.status;
     r.status = 'IN_PROGRESS';
 
     const saved = await this.repo.save(r);
 
-    await this.logTransition({ request: saved, actorId: providerId, from, to: saved.status });
+    await this.logTransition({
+      request: saved,
+      actorId: providerId,
+      from,
+      to: saved.status,
+    });
 
     return saved;
   }
 
   async complete(id: number, providerId: number) {
     const r = await this.get(id);
-    if (!r.provider || r.provider.id !== providerId) throw new ForbiddenException('Not your assignment');
-    if (r.status !== 'IN_PROGRESS') throw new BadRequestException('Only IN_PROGRESS can be completed');
+    if (!r.provider || r.provider.id !== providerId)
+      throw new ForbiddenException('Not your assignment');
+    if (r.status !== 'IN_PROGRESS')
+      throw new BadRequestException('Only IN_PROGRESS can be completed');
 
     const from: Status = r.status;
     r.status = 'DONE';
 
     const saved = await this.repo.save(r);
 
-    await this.logTransition({ request: saved, actorId: providerId, from, to: saved.status });
+    await this.logTransition({
+      request: saved,
+      actorId: providerId,
+      from,
+      to: saved.status,
+    });
 
     return saved;
   }
@@ -345,12 +471,15 @@ export class RequestsService {
     const isProv = actorRole === UserRole.PROVIDER;
 
     if (isClient && r.client.id !== actorId) {
-      throw new ForbiddenException('You cannot cancel requests of other clients');
+      throw new ForbiddenException(
+        'You cannot cancel requests of other clients',
+      );
     }
     if (isProv && (!r.provider || r.provider.id !== actorId)) {
       throw new ForbiddenException('You are not the assigned provider');
     }
-    if (r.status === 'DONE') throw new BadRequestException('Cannot cancel DONE');
+    if (r.status === 'DONE')
+      throw new BadRequestException('Cannot cancel DONE');
 
     const allowClient = new Set<Status>(['PENDING', 'OFFERED', 'ACCEPTED']);
     const allowProv = new Set<Status>(['OFFERED', 'ACCEPTED']);
@@ -359,7 +488,9 @@ export class RequestsService {
       (isProv && allowProv.has(r.status));
 
     if (!can) {
-      throw new BadRequestException(`State ${r.status} is not cancellable for your role`);
+      throw new BadRequestException(
+        `State ${r.status} is not cancellable for your role`,
+      );
     }
 
     const from: Status = r.status;
@@ -444,7 +575,7 @@ export class RequestsService {
    * open: pedidos abiertos cerca (paginado) para el proveedor actual.
    * - sort por 'distance' o 'createdAt'
    * - filtro por serviceTypeId
-   * - si el pedido está “apuntado” a un proveedor, sólo lo ve ese proveedor
+   * - “apuntados” sólo visibles por su proveedor
    */
   async open(
     q: {
@@ -491,7 +622,9 @@ export class RequestsService {
          )`,
         { pid: providerId },
       )
-      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', { self2: providerId })
+      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', {
+        self2: providerId,
+      })
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm });
 
     if (q.serviceTypeId) {
@@ -529,7 +662,7 @@ export class RequestsService {
   }
 
   // ---------------------------------------------------------------------------
-  // NUEVA IMPLEMENTACIÓN: "MIS SOLICITUDES" con MineQueryDto
+  // “MIS SOLICITUDES” (unificado)
   // ---------------------------------------------------------------------------
   async listMineByRole(userId: number, userRole: UserRole, q: MineQueryDto) {
     const as: 'client' | 'provider' =
@@ -562,7 +695,9 @@ export class RequestsService {
         scheduledAt: r.scheduledAt,
         priceOffered: r.priceOffered,
         priceAgreed: r.priceAgreed,
-        serviceType: r.serviceType ? { id: r.serviceType.id, name: r.serviceType.name } : null,
+        serviceType: r.serviceType
+          ? { id: r.serviceType.id, name: r.serviceType.name }
+          : null,
         client: r.client ? { id: r.client.id, email: r.client.email } : null,
         provider: r.provider ? { id: r.provider.id, email: r.provider.email } : null,
         createdAt: r.createdAt,
@@ -664,7 +799,9 @@ export class RequestsService {
       qb.where('provider.id = :userId', { userId });
     }
 
-    const rows = await qb.groupBy('r.status').getRawMany<{ status: Status; count: string }>();
+    const rows = await qb
+      .groupBy('r.status')
+      .getRawMany<{ status: Status; count: string }>();
 
     const counts: Record<Status, number> = {
       PENDING: 0,

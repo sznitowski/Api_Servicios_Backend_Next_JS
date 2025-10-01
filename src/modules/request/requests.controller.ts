@@ -10,8 +10,8 @@ import {
   ParseIntPipe,
   Query,
   BadRequestException,
+  Headers,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 
 import { RequestsService } from './requests.service';
 import { CreateRequestDto } from './dto/create-request.dto';
@@ -43,6 +43,7 @@ import {
   ApiParam,
   ApiBody,
   ApiQuery,
+  ApiHeader,
 } from '@nestjs/swagger';
 
 @ApiTags('requests')
@@ -56,7 +57,7 @@ export class RequestsController {
     private readonly ratings: RatingsService,
   ) {}
 
-  // Helper: toma userId desde el token (algunos tests usan `id`, otros `sub`)
+  // Helper: toma userId desde el token (algunos tokens usan `id`, otros `sub`)
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
@@ -65,7 +66,7 @@ export class RequestsController {
   // FEED Y ABIERTOS (para proveedores)
   // ===========================================================================
 
-  // GET /requests/feed -> feed simple, sin paginar (hasta 50), orden por distancia
+  /** GET /requests/feed — feed simple (hasta 50), ordenado por distancia */
   @ApiOperation({ summary: 'Feed de pedidos abiertos cerca (PROVIDER)' })
   @ApiOkResponse({ description: 'Listado con distancia' })
   @UseGuards(RolesGuard)
@@ -78,7 +79,7 @@ export class RequestsController {
     );
   }
 
-  // GET /requests/open -> feed paginado con filtros y sort por distancia/fecha
+  /** GET /requests/open — feed paginado con filtros y sort */
   @ApiOperation({ summary: 'Pedidos abiertos cerca con paginación (PROVIDER)' })
   @ApiOkResponse({ description: 'Listado paginado con distancia' })
   @ApiQuery({ name: 'lat', type: Number, required: true })
@@ -92,7 +93,6 @@ export class RequestsController {
   @Roles(UserRole.PROVIDER, UserRole.ADMIN)
   @Get('open')
   open(@Req() req: any, @Query() q: OpenRequestsQueryDto) {
-    // Validación mínima por si el transform no corrió
     if (q.lat == null || q.lng == null) {
       throw new BadRequestException('lat y lng son requeridos');
     }
@@ -116,15 +116,32 @@ export class RequestsController {
   // CREAR
   // ===========================================================================
 
-  // POST /requests -> crea un request PENDING del cliente autenticado
-  @ApiOperation({ summary: 'Crear un request' })
+  /**
+   * POST /requests — crea un request PENDING del cliente autenticado.
+   * **Nuevo**: soporta Idempotency-Key para no “spamear” pedidos.
+   * - Si viene el header `Idempotency-Key` o `X-Idempotency-Key`,
+   *   se reutiliza el mismo request ante reintentos.
+   */
+  @ApiOperation({ summary: 'Crear un request (idempotente con Idempotency-Key)' })
   @ApiBody({ type: CreateRequestDto })
-  @ApiCreatedResponse({ description: 'Request creado' })
+  @ApiCreatedResponse({ description: 'Request creado (o existente si reintento idempotente)' })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Clave para reintentos seguros' })
+  @ApiHeader({ name: 'X-Idempotency-Key', required: false, description: 'Alias del header anterior' })
   @Post()
-  create(@Body() body: CreateRequestDto, @Req() req: any) {
-    return this.service.create(body, this.uid(req));
+  create(
+    @Body() body: CreateRequestDto,
+    @Req() req: any,
+    @Headers() headers: Record<string, string | undefined>,
+  ) {
+    const key =
+      headers?.['idempotency-key'] ??
+      headers?.['Idempotency-Key'] as any ??
+      headers?.['x-idempotency-key'] ??
+      headers?.['X-Idempotency-Key'] as any;
+
+    return this.service.createIdempotent(body, this.uid(req), key || undefined);
   }
 
   // ===========================================================================
@@ -147,6 +164,7 @@ export class RequestsController {
     return this.service.listMineByRole(this.uid(req), role, q);
   }
 
+  /** LEGACY: como CLIENT */
   @ApiOperation({ summary: 'Mis solicitudes como CLIENT (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
@@ -161,6 +179,7 @@ export class RequestsController {
     return this.service.listByClient(this.uid(req), q);
   }
 
+  /** LEGACY: como PROVIDER */
   @ApiOperation({ summary: 'Mis solicitudes como PROVIDER (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
@@ -203,6 +222,7 @@ export class RequestsController {
   // TRANSICIONES
   // ===========================================================================
 
+  /** POST /:id/claim — proveedor ofrece tomar el pedido (pasa a OFFERED) */
   @ApiOperation({ summary: 'Claim (proveedor ofrece tomar el request)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: OfferDto })
@@ -221,6 +241,7 @@ export class RequestsController {
     return this.service.claim(id, this.uid(req), body.priceOffered);
   }
 
+  /** POST /:id/accept — cliente acepta la oferta (pasa a ACCEPTED) */
   @ApiOperation({ summary: 'Accept (cliente acepta la oferta)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: AcceptDto })
@@ -239,6 +260,7 @@ export class RequestsController {
     return this.service.accept(id, this.uid(req), body.priceAgreed);
   }
 
+  /** POST /:id/start — proveedor inicia el trabajo (pasa a IN_PROGRESS) */
   @ApiOperation({ summary: 'Start (proveedor inicia el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request en progreso' })
@@ -252,6 +274,7 @@ export class RequestsController {
     return this.service.start(id, this.uid(req));
   }
 
+  /** POST /:id/complete — proveedor completa (pasa a DONE) */
   @ApiOperation({ summary: 'Complete (proveedor completa el trabajo)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request completado' })
@@ -265,6 +288,7 @@ export class RequestsController {
     return this.service.complete(id, this.uid(req));
   }
 
+  /** POST /:id/cancel — cancelar según rol (cliente/proveedor) */
   @ApiOperation({ summary: 'Cancelar (cliente o proveedor del request)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: CancelRequestDto })
@@ -284,6 +308,7 @@ export class RequestsController {
     return this.service.cancel(id, this.uid(req), role, body);
   }
 
+  /** POST /:id/admin-cancel — cancelar como admin (auditable) */
   @ApiOperation({ summary: 'Cancelar como admin (auditable en timeline)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Request cancelado por admin' })
@@ -300,6 +325,7 @@ export class RequestsController {
   // RATING
   // ===========================================================================
 
+  /** POST /:id/rate — calificar trabajo (CLIENT) */
   @ApiOperation({ summary: 'Calificar trabajo (CLIENT)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiBody({ type: RateRequestDto })
@@ -317,6 +343,7 @@ export class RequestsController {
     return this.ratings.rateRequest(id, this.uid(req), body);
   }
 
+  /** Alias para /:id/rate */
   @ApiOperation({ summary: 'Calificar trabajo (alias de /:id/rate)' })
   @ApiBody({ type: CreateRatingDto })
   @UseGuards(RolesGuard)
@@ -334,6 +361,7 @@ export class RequestsController {
   // RESÚMENES
   // ===========================================================================
 
+  /** GET /requests/me/summary — resumen por estado (CLIENT) */
   @ApiOperation({ summary: 'Resumen de mis solicitudes (CLIENT)' })
   @ApiOkResponse({
     description: 'Conteo por estado',
@@ -356,6 +384,7 @@ export class RequestsController {
     return this.service.mineSummary({ userId: this.uid(req), as: 'client' });
   }
 
+  /** GET /requests/provider/me/summary — resumen por estado (PROVIDER) */
   @ApiOperation({ summary: 'Resumen de mis solicitudes (PROVIDER)' })
   @ApiOkResponse({
     description: 'Conteo por estado',

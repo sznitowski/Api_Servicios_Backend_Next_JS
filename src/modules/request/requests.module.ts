@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RequestsController } from './requests.controller';
 import { RequestsService } from './requests.service';
-import { ServiceRequest } from './request.entity';
+import { RequestIdempotencyKey, ServiceRequest } from './request.entity';
 import { RequestTransition } from './request-transition.entity';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
 import { User } from '../users/user.entity';
@@ -20,7 +20,8 @@ import { MessagesController } from './messages.controller';
       RequestTransition,
       ServiceType,
       User,
-      RequestMessage, // <-- está
+      RequestMessage, 
+      RequestIdempotencyKey
     ]),
     RatingsModule,
     NotificationsModule,
