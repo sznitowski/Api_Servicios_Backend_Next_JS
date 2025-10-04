@@ -51,12 +51,11 @@ export class ProvidersController {
     private readonly ratings: RatingsService,
   ) {}
 
-  /** userId desde el token (id o sub) */
   private uid(req: any): number {
     return Number(req?.user?.id ?? req?.user?.sub);
   }
 
-  // ---------- Perfil ----------
+  // ---------- Perfil propio (auth) ----------
   @ApiOperation({ summary: 'Ver mi perfil de proveedor' })
   @ApiOkResponse({ description: 'Perfil actual del proveedor' })
   @ApiUnauthorizedResponse({ description: 'No autenticado.' })
@@ -74,7 +73,7 @@ export class ProvidersController {
     return this.service.updateMyProfile(this.uid(req), dto);
   }
 
-  // ---------- Service Types propios ----------
+  // ---------- Mis service types (auth) ----------
   @ApiOperation({ summary: 'Listar mis tipos de servicio' })
   @ApiQuery({ name: 'active', required: false, type: Boolean, example: true })
   @ApiOkResponse({ description: 'Tipos de servicio del proveedor' })
@@ -122,7 +121,7 @@ export class ProvidersController {
     return this.service.deactivateMyServiceType(this.uid(req), serviceTypeId);
   }
 
-  // ---------- Ratings propios ----------
+  // ---------- Ratings propios (auth) ----------
   @ApiOperation({ summary: 'Listar mis calificaciones' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 5 })
@@ -148,7 +147,7 @@ export class ProvidersController {
   @ApiOperation({ summary: 'Buscar proveedores por tipo **o** por rubro (con filtros)' })
   @ApiOkResponse({ description: 'Listado paginado con distancia y precio base' })
   @ApiQuery({ name: 'serviceTypeId', required: false, type: Number })
-  @ApiQuery({ name: 'categoryId', required: false, type: Number }) // ⬅ nuevo
+  @ApiQuery({ name: 'categoryId', required: false, type: Number })
   @ApiQuery({ name: 'lat', required: true, type: Number })
   @ApiQuery({ name: 'lng', required: true, type: Number })
   @ApiQuery({ name: 'radiusKm', required: false, type: Number, example: 10 })
@@ -158,12 +157,7 @@ export class ProvidersController {
   @ApiQuery({ name: 'maxPrice', required: false, type: Number, example: 25000 })
   @ApiQuery({ name: 'hasPhoto', required: false, type: Boolean, example: true })
   @ApiQuery({ name: 'q', required: false, type: String, example: 'plomero' })
-  @ApiQuery({
-    name: 'sort',
-    required: false,
-    enum: ['distance', 'rating', 'price'],
-    example: 'distance',
-  })
+  @ApiQuery({ name: 'sort', required: false, enum: ['distance', 'rating', 'price'], example: 'distance' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Public()
@@ -172,10 +166,11 @@ export class ProvidersController {
     return this.service.searchProviders(q);
   }
 
-  // ---------- Público por :id ----------
+  // ---------- Público por :id (LEGACY también público) ----------
   @ApiOperation({ summary: 'Perfil público del proveedor (por userId)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Perfil público' })
+  @Public()
   @Get(':id')
   profileById(@Param('id', ParseIntPipe) id: number) {
     return this.service.getPublicProfileByUserId(id);
@@ -184,6 +179,7 @@ export class ProvidersController {
   @ApiOperation({ summary: 'Tipos de servicio activos del proveedor (por userId)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Tipos de servicio activos' })
+  @Public()
   @Get(':id/service-types')
   serviceTypesById(@Param('id', ParseIntPipe) id: number) {
     return this.service.getServiceTypesForUser(id);
@@ -194,6 +190,7 @@ export class ProvidersController {
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
   @ApiOkResponse({ description: 'Listado paginado de ratings' })
+  @Public()
   @Get(':id/ratings')
   ratingsByProvider(
     @Param('id', ParseIntPipe) id: number,
@@ -208,8 +205,54 @@ export class ProvidersController {
   @ApiOperation({ summary: 'Resumen de calificaciones por proveedor (por userId)' })
   @ApiParam({ name: 'id', type: Number })
   @ApiOkResponse({ description: 'Promedio y conteos por estrellas' })
+  @Public()
   @Get(':id/ratings/summary')
   ratingsSummaryByProvider(@Param('id', ParseIntPipe) id: number) {
+    return this.ratings.summaryForProvider(id);
+  }
+
+  // ---------- ALIASES PÚBLICOS: /providers/id/:id ----------
+  @ApiOperation({ summary: 'Alias público del perfil (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Perfil público' })
+  @Public()
+  @Get('id/:id')
+  profileByIdPublic(@Param('id', ParseIntPipe) id: number) {
+    return this.service.getPublicProfileByUserId(id);
+  }
+
+  @ApiOperation({ summary: 'Alias público: tipos de servicio activos (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Tipos de servicio activos' })
+  @Public()
+  @Get('id/:id/service-types')
+  serviceTypesByIdPublic(@Param('id', ParseIntPipe) id: number) {
+    return this.service.getServiceTypesForUser(id);
+  }
+
+  @ApiOperation({ summary: 'Alias público: listar calificaciones (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiOkResponse({ description: 'Listado paginado de ratings' })
+  @Public()
+  @Get('id/:id/ratings')
+  ratingsByProviderPublic(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() q: PaginationQueryDto,
+  ) {
+    return this.ratings.listByProvider(id, {
+      page: q.page ?? 1,
+      limit: q.limit ?? 10,
+    });
+  }
+
+  @ApiOperation({ summary: 'Alias público: resumen de calificaciones (por userId)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Promedio y conteos por estrellas' })
+  @Public()
+  @Get('id/:id/ratings/summary')
+  ratingsSummaryByProviderPublic(@Param('id', ParseIntPipe) id: number) {
     return this.ratings.summaryForProvider(id);
   }
 }

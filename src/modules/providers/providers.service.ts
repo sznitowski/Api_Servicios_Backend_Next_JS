@@ -281,10 +281,9 @@ export class ProvidersService {
       )
     `;
 
-    // Base: pst (provider_service_types) + st (service_types) + addr (address del user)
     const baseQb = this.pstRepo
       .createQueryBuilder('pst')
-      .select([]) 
+      .select([])
       .innerJoin('pst.provider', 'prov')
       .innerJoin('prov.user', 'u')
       .innerJoin('pst.serviceType', 'st')
@@ -299,8 +298,8 @@ export class ProvidersService {
       .addSelect('prov.photoUrl', 'photoUrl')
       .addSelect('prov.ratingAvg', 'ratingAvg')
       .addSelect('prov.ratingCount', 'ratingCount')
-      .addSelect('MIN(CAST(pst.basePrice AS DECIMAL(10,2)))', 'basePrice') // agregado
-      .addSelect('MIN(st.name)', 'serviceTypeName')                         // agregado
+      .addSelect('MIN(CAST(pst.basePrice AS DECIMAL(10,2)))', 'basePrice')
+      .addSelect('MIN(st.name)', 'serviceTypeName')
       .addSelect('addr.lat', 'lat')
       .addSelect('addr.lng', 'lng')
       .addSelect(distanceExpr, 'distanceKm')
@@ -315,17 +314,14 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
-    // Filtro por service type o por categoría
     if (serviceTypeId) {
       baseQb.andWhere('st.id = :stId', { stId: serviceTypeId });
     } else if (categoryId) {
       baseQb.andWhere('st.category_id = :catId', { catId: categoryId });
     }
 
-    // Radio
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
-    // Filtros opcionales
     if (typeof q.minRating === 'number') {
       baseQb.andWhere('CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating', {
         minRating: q.minRating,
@@ -354,7 +350,6 @@ export class ProvidersService {
       baseQb.andWhere('(prov.displayName LIKE :q OR u.name LIKE :q)', { q: `%${term}%` });
     }
 
-    // Orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
@@ -366,7 +361,6 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
-    // Total y página
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;

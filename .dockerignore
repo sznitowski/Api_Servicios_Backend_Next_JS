@@ -9,3 +9,4 @@ docker-compose*.yml
 .env.development
 .env.test
 .env.docker
+.env.dev
