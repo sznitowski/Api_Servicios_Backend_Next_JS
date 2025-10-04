@@ -7,13 +7,13 @@ services:
       MYSQL_DATABASE: ${DB_NAME:-services_db}
       MYSQL_USER: ${DB_USER:-app}
       MYSQL_PASSWORD: ${DB_PASS:-app}
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-root}
     ports:
-      - "${DB_PORT:-3307}:3306"
+      - "${DB_PORT_HOST:-3307}:3306"       # PC:3307 -> contenedor:3306
     volumes:
-      - db_data_dev:/var/lib/mysql
+      - db_data_dev:/var/lib/mysql         # <- sigue igual aquí
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_ROOT_PASS:-root}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -35,8 +35,12 @@ services:
       - ..:/app
     env_file:
       - .env.dev
-    # (Opcional) Evitamos warnings si querés interpolar aquí también
     environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-services_db}
+      DB_USER: ${DB_USER:-app}
+      DB_PASS: ${DB_PASS:-app}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
     ports:
@@ -48,3 +52,5 @@ services:
 
 volumes:
   db_data_dev:
+    external: true
+    name: docker_db_data

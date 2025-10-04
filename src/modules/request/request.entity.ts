@@ -1,7 +1,14 @@
 import {
-  Entity, PrimaryGeneratedColumn, Column,
-  ManyToOne, OneToOne, JoinColumn,
-  CreateDateColumn, UpdateDateColumn, Index, Unique
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  OneToOne,
+  JoinColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+  Unique,
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { ServiceType } from '../catalog/service-types/service-type.entity';
@@ -27,11 +34,11 @@ export type RequestStatus =
  * Tabla principal de pedidos/solicitudes de servicio.
  */
 @Entity('service_requests')
-@Index(['status'])                       // consultas por estado (feeds)
-@Index(['client'])                       // "mis pedidos" (como cliente)
-@Index(['provider'])                     // "mis trabajos" (como proveedor)
-@Index(['scheduledAt'])                  // agenda / próximos
-@Index(['client', 'status', 'createdAt'])// ayuda a anti-duplicados recientes
+@Index(['status'])                        // consultas por estado (feeds)
+@Index(['client'])                        // "mis pedidos" (como cliente)
+@Index(['provider'])                      // "mis trabajos" (como proveedor)
+@Index(['scheduledAt'])                   // agenda / próximos
+@Index(['client', 'status', 'createdAt']) // anti-duplicados recientes / listados
 export class ServiceRequest {
   @PrimaryGeneratedColumn()
   id: number;
@@ -54,8 +61,8 @@ export class ServiceRequest {
   /** Estado del pedido (ver enum arriba). */
   @Column({
     type: 'simple-enum',
-    enum: ['PENDING','OFFERED','ACCEPTED','IN_PROGRESS','DONE','CANCELLED'],
-    default: 'PENDING'
+    enum: ['PENDING', 'OFFERED', 'ACCEPTED', 'IN_PROGRESS', 'DONE', 'CANCELLED'],
+    default: 'PENDING',
   })
   status: RequestStatus;
 
@@ -94,29 +101,26 @@ export class ServiceRequest {
   priceAgreed?: string | null;
 
   /** Timestamps auditables. */
-  @CreateDateColumn() createdAt: Date;
-  @UpdateDateColumn() updatedAt: Date;
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
 
 /**
  * Tabla auxiliar para idempotencia de creación de pedidos.
- * - Guarda la "Idempotency-Key" enviada por el cliente
- *   y la asocia al pedido ya creado para que POST /requests sea seguro
- *   ante reintentos (misma key ⇒ devuelve el mismo request).
- *
- * Ventajas de estar separada:
- * - Se pueden asociar varias claves al mismo pedido (p.ej. reintentos
- *   desde móvil/web con claves distintas pero mismo resultado).
- * - No contaminamos la tabla principal con detalles técnicos del transporte.
+ * Guarda la "Idempotency-Key" y a qué pedido quedó asociada.
  */
 @Entity('request_idempotency_keys')
-@Unique(['key']) // cada clave se usa una sola vez en todo el sistema
+@Unique('UQ_request_idempotency_key', ['key']) // nombre explícito del índice único
 export class RequestIdempotencyKey {
   @PrimaryGeneratedColumn()
   id!: number;
 
   /** Valor exacto del header 'Idempotency-Key' (o 'X-Idempotency-Key'). */
-  @Index()
+  // ⚠️ Importante: NO ponemos @Index aquí para evitar choque con el UNIQUE.
+  // El índice único ya sirve para búsquedas por `key`.
   @Column({ type: 'varchar', length: 100 })
   key!: string;
 
