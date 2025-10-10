@@ -9,6 +9,8 @@ export function typeOrmConfig(): TypeOrmModuleOptions {
     password: process.env.DB_PASS || 'app',
     database: process.env.DB_NAME || 'services_db',
     autoLoadEntities: true,
+    charset: 'utf8mb4',
+    timezone: 'Z',
     synchronize: process.env.DB_SYNC === 'true',
     logging: false,
   };

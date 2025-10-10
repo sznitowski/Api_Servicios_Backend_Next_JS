@@ -54,7 +54,7 @@ export class RequestsService {
     private readonly idemRepo: Repository<RequestIdempotencyKey>,
 
     private readonly notifications: NotificationsService,
-  ) {}
+  ) { }
 
   // ---------------------------------------------------------------------------
   // FEED PARA PROVEEDORES
@@ -110,7 +110,7 @@ export class RequestsService {
         )`,
         { pid2: providerId },
       )
-      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', {
+      .andWhere('(r.provider_id IS NULL OR r.provider_id = :self2)', {
         self2: providerId,
       })
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm })
@@ -622,7 +622,7 @@ export class RequestsService {
          )`,
         { pid: providerId },
       )
-      .andWhere('(r.providerId IS NULL OR r.providerId = :self2)', {
+      .andWhere('(r.provider_id IS NULL OR r.provider_id = :self2)', {
         self2: providerId,
       })
       .andWhere(`${haversine} <= :radiusKm`, { lat, lng, radiusKm });
@@ -721,11 +721,12 @@ export class RequestsService {
       .leftJoinAndSelect('r.provider', 'provider')
       .leftJoinAndSelect('r.serviceType', 'serviceType');
 
-    if ((q.as ?? 'client') === 'provider') {
-      qb.where('r.providerId = :uid', { uid: userId });
-    } else {
-      qb.where('r.clientId = :uid', { uid: userId });
-    }
+  if ((q.as ?? 'client') === 'provider') {
+  qb.where('provider.id = :uid', { uid: userId });
+} else {
+  qb.where('client.id = :uid', { uid: userId });
+}
+
 
     if (q.status) qb.andWhere('r.status = :st', { st: q.status });
 
@@ -835,5 +836,12 @@ export class RequestsService {
       order: { createdAt: 'DESC' },
       relations: { client: true, provider: true, serviceType: true },
     });
+  }
+
+  offer(id: number, providerId: number, priceOffered?: number) {
+    return this.claim(id, providerId, priceOffered);
+  }
+  done(id: number, providerId: number) {
+    return this.complete(id, providerId);
   }
 }

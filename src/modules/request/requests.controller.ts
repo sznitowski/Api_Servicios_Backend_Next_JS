@@ -73,10 +73,14 @@ export class RequestsController {
   @Roles(UserRole.PROVIDER, UserRole.ADMIN)
   @Get('feed')
   feed(@Req() req: any, @Query() q: FeedQueryDto) {
-    return this.service.feed(
-      { lat: q.lat, lng: q.lng, radiusKm: q.radiusKm ?? 10 },
-      this.uid(req),
-    );
+    const latN = parseFloat(String(q.lat).replace(',', '.'));
+    const lngN = parseFloat(String(q.lng).replace(',', '.'));
+    const rKmN =
+      parseFloat(String(q.radiusKm ?? 10).toString().replace(',', '.')) || 10;
+    if (Number.isNaN(latN) || Number.isNaN(lngN)) {
+      throw new BadRequestException('lat/lng inválidos');
+    }
+    return this.service.feed({ lat: latN, lng: lngN, radiusKm: rKmN }, this.uid(req));
   }
 
   /** GET /requests/open — feed paginado con filtros y sort */
@@ -88,7 +92,12 @@ export class RequestsController {
   @ApiQuery({ name: 'page', type: Number, required: false, example: 1 })
   @ApiQuery({ name: 'limit', type: Number, required: false, example: 20 })
   @ApiQuery({ name: 'serviceTypeId', type: Number, required: false })
-  @ApiQuery({ name: 'sort', required: false, enum: ['distance', 'createdAt'], example: 'distance' })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['distance', 'createdAt'],
+    example: 'distance',
+  })
   @UseGuards(RolesGuard)
   @Roles(UserRole.PROVIDER, UserRole.ADMIN)
   @Get('open')
@@ -97,11 +106,22 @@ export class RequestsController {
       throw new BadRequestException('lat y lng son requeridos');
     }
 
+    const latN = parseFloat(String(q.lat).replace(',', '.'));
+    const lngN = parseFloat(String(q.lng).replace(',', '.'));
+    const rKmN =
+      q.radiusKm != null
+        ? parseFloat(String(q.radiusKm).replace(',', '.'))
+        : 10;
+
+    if (Number.isNaN(latN) || Number.isNaN(lngN)) {
+      throw new BadRequestException('lat/lng inválidos');
+    }
+
     return this.service.open(
       {
-        lat: Number(q.lat),
-        lng: Number(q.lng),
-        radiusKm: q.radiusKm ?? 10,
+        lat: latN,
+        lng: lngN,
+        radiusKm: rKmN,
         page: Math.max(1, Number(q.page ?? 1)),
         limit: Math.max(1, Math.min(Number(q.limit ?? 20), 50)),
         serviceTypeId:
@@ -124,11 +144,21 @@ export class RequestsController {
    */
   @ApiOperation({ summary: 'Crear un request (idempotente con Idempotency-Key)' })
   @ApiBody({ type: CreateRequestDto })
-  @ApiCreatedResponse({ description: 'Request creado (o existente si reintento idempotente)' })
+  @ApiCreatedResponse({
+    description: 'Request creado (o existente si reintento idempotente)',
+  })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
-  @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Clave para reintentos seguros' })
-  @ApiHeader({ name: 'X-Idempotency-Key', required: false, description: 'Alias del header anterior' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Clave para reintentos seguros',
+  })
+  @ApiHeader({
+    name: 'X-Idempotency-Key',
+    required: false,
+    description: 'Alias del header anterior',
+  })
   @Post()
   create(
     @Body() body: CreateRequestDto,
@@ -137,9 +167,9 @@ export class RequestsController {
   ) {
     const key =
       headers?.['idempotency-key'] ??
-      headers?.['Idempotency-Key'] as any ??
+      (headers?.['Idempotency-Key'] as any) ??
       headers?.['x-idempotency-key'] ??
-      headers?.['X-Idempotency-Key'] as any;
+      (headers?.['X-Idempotency-Key'] as any);
 
     return this.service.createIdempotent(body, this.uid(req), key || undefined);
   }
@@ -288,6 +318,20 @@ export class RequestsController {
     return this.service.complete(id, this.uid(req));
   }
 
+  /** Alias: POST /:id/done — igual a /:id/complete */
+  @ApiOperation({ summary: 'Done (alias de /:id/complete)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiOkResponse({ description: 'Request completado' })
+  @ApiBadRequestResponse({ description: 'Only IN_PROGRESS can be completed' })
+  @ApiForbiddenResponse({ description: 'Not your assignment' })
+  @ApiUnauthorizedResponse({ description: 'No autenticado' })
+  @Post(':id/done')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
+  doneAlias(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return this.service.complete(id, this.uid(req));
+  }
+
   /** POST /:id/cancel — cancelar según rol (cliente/proveedor) */
   @ApiOperation({ summary: 'Cancelar (cliente o proveedor del request)' })
   @ApiParam({ name: 'id', type: Number })
@@ -405,5 +449,58 @@ export class RequestsController {
   @Get('provider/me/summary')
   mineSummaryAsProvider(@Req() req: any) {
     return this.service.mineSummary({ userId: this.uid(req), as: 'provider' });
+  }
+
+  @ApiOperation({ summary: 'Alias: Ofertar (igual a /:id/claim)' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiBody({ type: OfferDto })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
+  @Post(':id/offer')
+  offerAlias(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: OfferDto,
+    @Req() req: any,
+  ) {
+    return this.service.claim(id, this.uid(req), body.priceOffered);
+  }
+
+  // GET /requests?nearLat=&nearLng=&radiusKm=  → redirige a open()
+  @ApiOperation({ summary: 'Alias de open(): feed simple por lat/lng (PROVIDER)' })
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
+  @Get()
+  listAlias(
+    @Req() req: any,
+    @Query()
+    q: {
+      nearLat?: string;
+      nearLng?: string;
+      radiusKm?: string;
+      page?: string;
+      limit?: string;
+    },
+  ) {
+    if (q?.nearLat == null || q?.nearLng == null) {
+      throw new BadRequestException('nearLat y nearLng son requeridos');
+    }
+    const latN = parseFloat(String(q.nearLat).replace(',', '.'));
+    const lngN = parseFloat(String(q.nearLng).replace(',', '.'));
+    const rKmN = q.radiusKm
+      ? parseFloat(String(q.radiusKm).replace(',', '.'))
+      : 10;
+    if (Number.isNaN(latN) || Number.isNaN(lngN)) {
+      throw new BadRequestException('nearLat/nearLng inválidos');
+    }
+    return this.service.open(
+      {
+        lat: latN,
+        lng: lngN,
+        radiusKm: rKmN,
+        page: q.page ? Number(q.page) : 1,
+        limit: q.limit ? Number(q.limit) : 20,
+      },
+      this.uid(req),
+    );
   }
 }
