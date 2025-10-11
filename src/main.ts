@@ -24,7 +24,8 @@ async function bootstrap() {
     origin: ['http://localhost:3001', 'http://localhost:3000', 'http://127.0.0.1:3001'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+    exposedHeaders: ['Idempotency-Key'],
   });
 
 

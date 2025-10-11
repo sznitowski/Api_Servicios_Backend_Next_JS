@@ -248,6 +248,21 @@ export class RequestsController {
     return this.service.timeline(id);
   }
 
+  // === Alias de timeline ===
+  @ApiOperation({ summary: 'Alias de timeline (igual a /:id/timeline)' })
+  @ApiParam({ name: 'id', type: Number })
+  @Get(':id/transitions')
+  transitions(@Param('id', ParseIntPipe) id: number) {
+    return this.service.timeline(id);
+  }
+
+  @ApiOperation({ summary: 'Alias de timeline (igual a /:id/timeline)' })
+  @ApiParam({ name: 'id', type: Number })
+  @Get(':id/history')
+  history(@Param('id', ParseIntPipe) id: number) {
+    return this.service.timeline(id);
+  }
+
   // ===========================================================================
   // TRANSICIONES
   // ===========================================================================
@@ -503,4 +518,5 @@ export class RequestsController {
       this.uid(req),
     );
   }
+  
 }
