@@ -194,8 +194,8 @@ export class RequestsController {
     return this.service.listMineByRole(this.uid(req), role, q);
   }
 
-  /** LEGACY: como CLIENT */
-  @ApiOperation({ summary: 'Mis solicitudes como CLIENT (LEGACY)' })
+  /** LEGACY pero ahora inteligente por ROL en /requests/me */
+  @ApiOperation({ summary: 'Mis solicitudes (cliente o proveedor, según rol activo)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
     name: 'status',
@@ -206,10 +206,14 @@ export class RequestsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   @Get('me')
   listMine(@Req() req: any, @Query() q: ListRequestsQueryDto) {
+    const role: UserRole = req?.user?.role ?? UserRole.CLIENT;
+    if (role === UserRole.PROVIDER) {
+      return this.service.listByProvider(this.uid(req), q);
+    }
     return this.service.listByClient(this.uid(req), q);
   }
 
-  /** LEGACY: como PROVIDER */
+  /** LEGACY: como PROVIDER explícito */
   @ApiOperation({ summary: 'Mis solicitudes como PROVIDER (LEGACY)' })
   @ApiOkResponse({ description: 'Listado paginado' })
   @ApiQuery({
@@ -518,5 +522,4 @@ export class RequestsController {
       this.uid(req),
     );
   }
-  
 }

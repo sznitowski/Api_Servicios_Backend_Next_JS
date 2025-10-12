@@ -27,7 +27,7 @@ export class ProvidersService {
     private readonly stRepo: Repository<ServiceType>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   /** Crea (si no existe) y devuelve el perfil del proveedor para un userId. */
   private async getOrCreateProfile(userId: number) {
@@ -306,7 +306,6 @@ export class ProvidersService {
       .setParameters({ lat, lng })
       .groupBy('prov.id')
       .addGroupBy('u.id')
-      .addGroupBy('addr.id')
       .addGroupBy('prov.displayName')
       .addGroupBy('prov.photoUrl')
       .addGroupBy('prov.ratingAvg')
@@ -314,14 +313,17 @@ export class ProvidersService {
       .addGroupBy('addr.lat')
       .addGroupBy('addr.lng');
 
+    // >>> FIX: filtrar por rubro exacto (serviceTypeId) cuando viene; caso contrario por categoría.
     if (serviceTypeId) {
-      baseQb.andWhere('st.id = :stId', { stId: serviceTypeId });
-    } else if (categoryId) {
-      baseQb.andWhere('st.category_id = :catId', { catId: categoryId });
+      baseQb.andWhere('st.id = :serviceTypeId', { serviceTypeId });
+    } else {
+      baseQb.andWhere('st.category_id = :categoryId', { categoryId });
     }
 
+    // Distancia
     baseQb.having('distanceKm <= :radius', { radius: radiusKm });
 
+    // Filtros opcionales
     if (typeof q.minRating === 'number') {
       baseQb.andWhere('CAST(prov.ratingAvg AS DECIMAL(3,2)) >= :minRating', {
         minRating: q.minRating,
@@ -331,12 +333,18 @@ export class ProvidersService {
       baseQb.andWhere('prov.ratingCount >= :minReviews', { minReviews: q.minReviews });
     }
     if (typeof q.minPrice === 'number') {
-      baseQb.andWhere('pst.basePrice IS NOT NULL')
-        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) >= :minPrice', { minPrice: q.minPrice });
+      baseQb
+        .andWhere('pst.basePrice IS NOT NULL')
+        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) >= :minPrice', {
+          minPrice: q.minPrice,
+        });
     }
     if (typeof q.maxPrice === 'number') {
-      baseQb.andWhere('pst.basePrice IS NOT NULL')
-        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) <= :maxPrice', { maxPrice: q.maxPrice });
+      baseQb
+        .andWhere('pst.basePrice IS NOT NULL')
+        .andWhere('CAST(pst.basePrice AS DECIMAL(10,2)) <= :maxPrice', {
+          maxPrice: q.maxPrice,
+        });
     }
     if (typeof q.hasPhoto === 'boolean') {
       baseQb.andWhere(
@@ -347,9 +355,12 @@ export class ProvidersService {
     }
     const term = (q.q ?? '').trim();
     if (term) {
-      baseQb.andWhere('(prov.displayName LIKE :q OR u.name LIKE :q)', { q: `%${term}%` });
+      baseQb.andWhere('(prov.displayName LIKE :q OR u.name LIKE :q)', {
+        q: `%${term}%`,
+      });
     }
 
+    // Orden
     if (sort === 'rating') {
       baseQb.orderBy('prov.ratingAvg', 'DESC').addOrderBy('distanceKm', 'ASC');
     } else if (sort === 'price') {
@@ -361,10 +372,12 @@ export class ProvidersService {
       baseQb.orderBy('distanceKm', 'ASC').addOrderBy('prov.ratingAvg', 'DESC');
     }
 
+    // Total (mismo query sin paginado)
     const total = (
       await baseQb.clone().offset(undefined).limit(undefined).getRawMany()
     ).length;
 
+    // Página
     const rows = await baseQb.skip((page - 1) * limit).take(limit).getRawMany();
 
     const items = rows.map((r: any) => ({

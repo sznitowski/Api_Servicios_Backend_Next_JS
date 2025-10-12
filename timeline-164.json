@@ -1,0 +1,77 @@
+﻿[
+    {
+        "id":  317,
+        "actor":  {
+                      "id":  2,
+                      "email":  "provider1@demo.com",
+                      "name":  "Proveedor Demo",
+                      "role":  "PROVIDER"
+                  },
+        "fromStatus":  "PENDING",
+        "toStatus":  "OFFERED",
+        "priceOffered":  "8000.00",
+        "priceAgreed":  null,
+        "notes":  null,
+        "createdAt":  "2025-10-12T19:40:00.590Z"
+    },
+    {
+        "id":  318,
+        "actor":  {
+                      "id":  2,
+                      "email":  "provider1@demo.com",
+                      "name":  "Proveedor Demo",
+                      "role":  "PROVIDER"
+                  },
+        "fromStatus":  "OFFERED",
+        "toStatus":  "OFFERED",
+        "priceOffered":  "8000.00",
+        "priceAgreed":  null,
+        "notes":  "Re-offer by same provider (idempotent) [CLAIM_V2]",
+        "createdAt":  "2025-10-12T19:40:51.293Z"
+    },
+    {
+        "id":  319,
+        "actor":  {
+                      "id":  1,
+                      "email":  "client2@demo.com",
+                      "name":  "Cliente Demo",
+                      "role":  "CLIENT"
+                  },
+        "fromStatus":  "OFFERED",
+        "toStatus":  "ACCEPTED",
+        "priceOffered":  null,
+        "priceAgreed":  "8000.00",
+        "notes":  null,
+        "createdAt":  "2025-10-12T19:40:59.034Z"
+    },
+    {
+        "id":  320,
+        "actor":  {
+                      "id":  2,
+                      "email":  "provider1@demo.com",
+                      "name":  "Proveedor Demo",
+                      "role":  "PROVIDER"
+                  },
+        "fromStatus":  "ACCEPTED",
+        "toStatus":  "IN_PROGRESS",
+        "priceOffered":  null,
+        "priceAgreed":  null,
+        "notes":  null,
+        "createdAt":  "2025-10-12T19:41:02.753Z"
+    },
+    {
+        "id":  321,
+        "actor":  {
+                      "id":  2,
+                      "email":  "provider1@demo.com",
+                      "name":  "Proveedor Demo",
+                      "role":  "PROVIDER"
+                  },
+        "fromStatus":  "IN_PROGRESS",
+        "toStatus":  "DONE",
+        "priceOffered":  null,
+        "priceAgreed":  null,
+        "notes":  null,
+        "createdAt":  "2025-10-12T19:41:06.446Z"
+    }
+]

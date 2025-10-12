@@ -352,26 +352,34 @@ export class RequestsService {
   // TRANSICIONES (claim / accept / start / complete / cancel)
   // ---------------------------------------------------------------------------
 
-  async claim(id: number, providerId: number, priceOffered?: number) {
-    const r = await this.get(id);
+async claim(id: number, providerId: number, priceOffered?: number) {
+  const r = await this.get(id);
 
-    if (r.client.id === providerId) {
-      throw new ForbiddenException('Cannot claim your own request');
-    }
+  // No permitir que el cliente se auto-claim
+  if (r.client.id === providerId) {
+    throw new ForbiddenException('Cannot claim your own request [CLAIM_V2]');
+  }
+
+  // Si está asignado a OTRO proveedor → bloqueo
+  if (r.provider && r.provider.id !== providerId) {
+    throw new ConflictException(
+      `Already claimed by another provider [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
+    );
+  }
+
+  // Aseguramos que el provider existe
+  const provider = await this.userRepo.findOne({ where: { id: providerId } });
+  if (!provider) {
+    throw new NotFoundException('Provider not found [CLAIM_V2]');
+  }
+
+  // ------- Caso A: sin provider asignado aún -------
+  if (!r.provider) {
     if (r.status !== 'PENDING') {
-      throw new ConflictException('Request is not open to claim');
+      throw new ConflictException(
+        `Request is not open to claim [CLAIM_V2] (status=${r.status})`,
+      );
     }
-
-    const provider = await this.userRepo.findOne({ where: { id: providerId } });
-    if (!provider) throw new NotFoundException('Provider not found');
-
-    if (r.provider && r.provider.id !== providerId) {
-      throw new ConflictException('Already claimed by another provider');
-    }
-    if (r.provider && r.provider.id === providerId) {
-      throw new ConflictException('Already claimed by you');
-    }
-
     const from: Status = r.status;
     r.provider = provider;
     r.priceOffered =
@@ -379,7 +387,6 @@ export class RequestsService {
     r.status = 'OFFERED';
 
     const saved = await this.repo.save(r);
-
     await this.logTransition({
       request: saved,
       actorId: providerId,
@@ -387,9 +394,61 @@ export class RequestsService {
       to: saved.status,
       priceOffered: saved.priceOffered ?? null,
     });
-
     return saved;
   }
+
+  // A partir de acá: r.provider.id === providerId (apuntado a mí)
+
+  // ------- Caso B: apuntado a mí y aún PENDING → lo activo a OFFERED -------
+  if (r.status === 'PENDING') {
+    const from: Status = r.status;
+    r.status = 'OFFERED';
+    r.priceOffered =
+      priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
+
+    const saved = await this.repo.save(r);
+    await this.logTransition({
+      request: saved,
+      actorId: providerId,
+      from,
+      to: saved.status,
+      priceOffered: saved.priceOffered ?? null,
+    });
+    return saved;
+  }
+
+  // ------- Caso C: apuntado a mí y ya OFFERED → idempotente --------
+  if (r.status === 'OFFERED') {
+    const wantsChange =
+      priceOffered != null &&
+      String(priceOffered) !== (r.priceOffered ?? '');
+
+    if (wantsChange) {
+      r.priceOffered = String(priceOffered);
+      const saved = await this.repo.save(r);
+      await this.logTransition({
+        request: saved,
+        actorId: providerId,
+        from: 'OFFERED',
+        to: 'OFFERED',
+        priceOffered: saved.priceOffered ?? null,
+        notes: 'Re-offer by same provider (idempotent) [CLAIM_V2]',
+      });
+      return saved;
+    }
+
+    // Sin cambios → respuesta idempotente
+    return r;
+  }
+
+  // ------- Otros estados: ACCEPTED / IN_PROGRESS / DONE / CANCELLED -------
+  throw new ConflictException(
+    `Already claimed by you [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
+  );
+}
+
+
+
 
   async accept(id: number, clientId: number, priceAgreed?: number) {
     const r = await this.get(id);
@@ -721,11 +780,11 @@ export class RequestsService {
       .leftJoinAndSelect('r.provider', 'provider')
       .leftJoinAndSelect('r.serviceType', 'serviceType');
 
-  if ((q.as ?? 'client') === 'provider') {
-  qb.where('provider.id = :uid', { uid: userId });
-} else {
-  qb.where('client.id = :uid', { uid: userId });
-}
+    if ((q.as ?? 'client') === 'provider') {
+      qb.where('provider.id = :uid', { uid: userId });
+    } else {
+      qb.where('client.id = :uid', { uid: userId });
+    }
 
 
     if (q.status) qb.andWhere('r.status = :st', { st: q.status });
