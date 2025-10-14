@@ -1,17 +1,37 @@
 import {
-  Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards,
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import {
-  ApiTags, ApiOperation, ApiParam, ApiQuery, ApiBearerAuth,
-  ApiBody, ApiCreatedResponse, ApiUnauthorizedResponse,
-  ApiBadRequestResponse, ApiForbiddenResponse, ApiNotFoundResponse,
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiUnauthorizedResponse,
+  ApiBadRequestResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 
 import { RatingsService } from './ratings.service';
 import { CreateRatingDto } from './dto/create-rating.dto';
 import { ListProviderRatingsDto } from './dto/list-provider-ratings.dto';
+
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user';
+import { UserRole } from '../users/user.entity';
 
 /** LECTURA por proveedor: /providers/... */
 @ApiTags('providers')
@@ -46,30 +66,65 @@ export class RatingsController {
   }
 }
 
-/** ESCRITURA (cliente) y LECTURA por request: /requests/... */
+/** ESCRITURA (cliente o proveedor) y LECTURA por request: /requests/... */
 @ApiTags('ratings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('requests')
 export class RatingsWriterController {
   constructor(private readonly ratings: RatingsService) {}
 
-  // POST /requests/:requestId/rating
-  @ApiOperation({ summary: 'Calificar un request finalizado (solo cliente)' })
+  // POST /requests/:requestId/rating  (cliente → proveedor por default)
+  // Permite target=client para proveedor → cliente
+  @ApiOperation({ summary: 'Crear/actualizar calificación de un request' })
   @ApiParam({ name: 'requestId', type: Number })
+  @ApiQuery({
+    name: 'target',
+    required: false,
+    description: "Si 'client', califica el proveedor al cliente; default: cliente al proveedor",
+    enum: ['client'],
+  })
   @ApiBody({ type: CreateRatingDto })
   @ApiCreatedResponse({ description: 'Rating creado/actualizado' })
   @ApiUnauthorizedResponse({ description: 'No autenticado' })
   @ApiBadRequestResponse({ description: 'Estado inválido / duplicado' })
-  @ApiForbiddenResponse({ description: 'Solo el cliente puede calificar' })
+  @ApiForbiddenResponse({ description: 'Rol no permitido' })
   @ApiNotFoundResponse({ description: 'Request no encontrado' })
+  @Roles(UserRole.CLIENT, UserRole.PROVIDER, UserRole.ADMIN)
   @Post(':requestId/rating')
-  create(
+  createOrUpdate(
+    @Param('requestId', ParseIntPipe) requestId: number,
+    @CurrentUser() user: { sub: number; role: UserRole },
+    @Body() dto: CreateRatingDto,
+    @Query('target') target?: 'client',
+  ) {
+    if (target === 'client') {
+      // proveedor → cliente
+      if (user.role !== UserRole.PROVIDER && user.role !== UserRole.ADMIN) {
+        throw new ForbiddenException('Only provider can rate the client');
+      }
+      return this.ratings.rateClient(requestId, user.sub, dto);
+    }
+
+    // cliente → proveedor (default)
+    if (user.role !== UserRole.CLIENT && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only client can rate the provider');
+    }
+    return this.ratings.rateRequest(requestId, user.sub, dto);
+  }
+
+  // Alias que usa tu UI primero: POST /requests/:requestId/rating/client
+  @ApiOperation({ summary: 'Alias: proveedor califica al cliente' })
+  @ApiParam({ name: 'requestId', type: Number })
+  @ApiBody({ type: CreateRatingDto })
+  @Roles(UserRole.PROVIDER, UserRole.ADMIN)
+  @Post(':requestId/rating/client')
+  createForClient(
     @Param('requestId', ParseIntPipe) requestId: number,
     @CurrentUser() user: { sub: number },
     @Body() dto: CreateRatingDto,
   ) {
-    return this.ratings.rateRequest(requestId, user.sub, dto);
+    return this.ratings.rateClient(requestId, user.sub, dto);
   }
 }
 
@@ -78,11 +133,32 @@ export class RatingsWriterController {
 export class RatingsReadController {
   constructor(private readonly ratings: RatingsService) {}
 
-  // GET /requests/:requestId/rating
-  @ApiOperation({ summary: 'Obtener la calificación de un request (si existe)' })
+  // GET /requests/:requestId/rating  (default: cliente→proveedor)
+  // Soporta ?target=client para proveedor→cliente
+  @ApiOperation({ summary: 'Obtener la calificación de un request' })
   @ApiParam({ name: 'requestId', type: Number })
+  @ApiQuery({
+    name: 'target',
+    required: false,
+    description: "Si 'client', devuelve la calificación del proveedor al cliente",
+    enum: ['client'],
+  })
   @Get(':requestId/rating')
-  getByRequest(@Param('requestId', ParseIntPipe) requestId: number) {
+  getByRequest(
+    @Param('requestId', ParseIntPipe) requestId: number,
+    @Query('target') target?: 'client',
+  ) {
+    if (target === 'client') {
+      return this.ratings.getClientRatingByRequest(requestId);
+    }
     return this.ratings.getByRequest(requestId);
+  }
+
+  // Alias que usa tu UI: GET /requests/:requestId/rating/client
+  @ApiOperation({ summary: 'Alias: obtener calificación proveedor→cliente' })
+  @ApiParam({ name: 'requestId', type: Number })
+  @Get(':requestId/rating/client')
+  getClientRatingAlias(@Param('requestId', ParseIntPipe) requestId: number) {
+    return this.ratings.getClientRatingByRequest(requestId);
   }
 }

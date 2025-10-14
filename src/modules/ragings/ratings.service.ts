@@ -139,4 +139,61 @@ export class RatingsService {
     profile.ratingCount = Number(row?.cnt ?? 0);
     await this.provRepo.save(profile);
   }
+
+    // Proveedor → Cliente
+  async rateClient(requestId: number, providerId: number, dto: CreateRatingDto) {
+    const req = await this.reqRepo.findOne({
+      where: { id: requestId },
+      relations: { client: true, provider: true },
+    });
+    if (!req) throw new NotFoundException('Request not found');
+    if (req.status !== 'DONE') throw new BadRequestException('Request is not done yet');
+    if (!req.provider || req.provider.id !== providerId) {
+      throw new ForbiddenException('Only the assigned provider can rate this request');
+    }
+
+    const existing = await this.ratingRepo.findOne({
+      where: {
+        request: { id: requestId } as any,
+        rater:   { id: providerId } as any,
+        ratee:   { id: req.client.id } as any,
+      },
+    });
+
+    if (existing) {
+      existing.score   = dto.stars;
+      existing.comment = dto.comment ?? null;
+      return this.ratingRepo.save(existing);
+    }
+
+    return this.ratingRepo.save(this.ratingRepo.create({
+      request: { id: requestId } as any,
+      rater:   { id: providerId } as any,
+      ratee:   { id: req.client.id } as any,
+      score: dto.stars,
+      comment: dto.comment ?? null,
+    }));
+  }
+
+  // Leer proveedor → cliente (para mostrar en la vista del cliente)
+  async getClientRatingByRequest(requestId: number) {
+    const req = await this.reqRepo.findOne({
+      where: { id: requestId },
+      relations: { client: true, provider: true },
+    });
+    if (!req) throw new NotFoundException('Request not found');
+
+    const rows = await this.ratingRepo.find({
+      where: {
+        request: { id: requestId } as any,
+        rater:   { id: req.provider?.id } as any,
+        ratee:   { id: req.client.id } as any,
+      },
+      relations: { rater: true, ratee: true, request: true },
+      order: { createdAt: 'DESC' },
+      take: 1,
+    });
+
+    return rows[0] ?? null;
+  }
 }
