@@ -1,9 +1,9 @@
 // test/users.addresses.e2e-spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 
 const EMAIL = process.env.E2E_EMAIL ?? 'client2@demo.com';
 const PASS  = process.env.E2E_PASS  ?? '123456';
@@ -11,7 +11,7 @@ const H = (t: string) => ({ Authorization: `Bearer ${t}` });
 
 describe('Users /me/addresses (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let token = '';
   let id1: number;
   let id2: number;
@@ -22,7 +22,7 @@ describe('Users /me/addresses (e2e)', () => {
     app = mod.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer());
 
     // Login con usuario seed
     const { body, status } = await http.post('/auth/login').send({ email: EMAIL, password: PASS });

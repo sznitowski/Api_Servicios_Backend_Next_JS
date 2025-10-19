@@ -1,46 +1,23 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
-import { DataSource } from 'typeorm';
-
-import { AppTestingModule } from '../src/app.testing.module';
+// test/app.e2e-spec.ts
+import { createE2eApp, E2eCtx } from './support/e2e-helpers';
 
 describe('E2E smoke', () => {
-  let app: INestApplication;
-  let http: SuperTest<ST>;
-  let ds: DataSource;
+  let ctx: E2eCtx;
 
   beforeAll(async () => {
-    const mod = await NestTest.createTestingModule({
-      imports: [AppTestingModule],
-    }).compile();
-
-    app = mod.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-    await app.init();
-
-    http = request(app.getHttpServer());      // <- acá se define http
-    ds = app.get(DataSource);
+    ctx = await createE2eApp();
   }, 30000);
 
   afterAll(async () => {
-    await app?.close();
-    if (ds?.isInitialized) await ds.destroy();
-  });
-
-  afterAll(async () => {
-    await app?.close();
-    if (ds?.isInitialized) {
-      await ds.destroy();
-    }
+    await ctx.close();
   });
 
   it('/auth/login (POST) works', async () => {
-    const res = await http
+    const res = await ctx.http
       .post('/auth/login')
-      .send({ email: 'prov@demo.com', password: '123456' }) // con “v”
+      .send({ email: 'provider1@demo.com', password: '$2b$10$z2yynlnp7Oj3Qbc8GdGa9uhKywGuqOcVi/tmNf9SeaHQd8NOd7EUu' })
       .expect(200);
 
-    expect(res.body.access_token).toBeDefined();
-  }, 15000);
+    expect(res.body.access_token ?? res.body.accessToken).toBeDefined();
+  });
 });

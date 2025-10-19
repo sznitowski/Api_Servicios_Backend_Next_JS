@@ -1,9 +1,9 @@
 // test/auth.refresh.e2e-spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 
 const H = (t: string) => ({ Authorization: `Bearer ${t}` });
 const EMAIL = process.env.E2E_EMAIL ?? 'client2@demo.com';
@@ -11,7 +11,7 @@ const PASS = process.env.E2E_PASS ?? '123456';
 
 describe('Auth / refresh + logout (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let access = '';
   let refresh = '';
 
@@ -21,7 +21,7 @@ describe('Auth / refresh + logout (e2e)', () => {
     app = mod.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer());
   });
 
   afterAll(async () => {

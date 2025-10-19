@@ -1,16 +1,16 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import {
   H, expectOk, login, getServiceTypeId, linkProviderToServiceTypeSQLite
 } from './seed-sqlite';
 
 describe('Notifications (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli: string;     // bearer del cliente
@@ -26,12 +26,12 @@ describe('Notifications (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer());
     ds = app.get(DataSource);
 
     // logins y set up básico
-    hcli  = await login(http, 'test@demo.com');
-    hprov = await login(http, 'prov@demo.com');
+    hcli  = await login(http, 'client2@demo.com');
+    hprov = await login(http, 'provider1@demo.com');
     serviceTypeId = await getServiceTypeId(http, hcli);
 
     // vincular proveedor al tipo de servicio (en sqlite helper)

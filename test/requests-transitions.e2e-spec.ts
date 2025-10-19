@@ -1,17 +1,23 @@
+// test/requests-transitions.e2e-spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import { User } from '../src/modules/users/user.entity';
 import {
-  H, expectOk, login, getServiceTypeId, linkProviderToServiceTypeSQLite
+  H,
+  expectOk,
+  login,
+  getServiceTypeId,
+  linkProviderToServiceTypeSQLite,
 } from './seed-sqlite';
 
 describe('Transiciones de Request (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  // 👇 deja que TS infiera, o si querés tipar:  let http: ReturnType<typeof supertest>;
+  let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli: string;
@@ -27,14 +33,14 @@ describe('Transiciones de Request (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer());  
     ds = app.get(DataSource);
 
-    hcli  = await login(http, 'test@demo.com');
-    hprov = await login(http, 'prov@demo.com');
+    hcli = await login(http, 'client2@demo.com');
+    hprov = await login(http, 'provider1@demo.com');
     serviceTypeId = await getServiceTypeId(http, hcli);
 
-    const prov = await ds.getRepository(User).findOne({ where: { email: 'prov@demo.com' } });
+    const prov = await ds.getRepository(User).findOne({ where: { email: 'provider1@demo.com' } });
     if (prov) await linkProviderToServiceTypeSQLite(ds, prov.id, serviceTypeId);
   }, 30000);
 
@@ -98,14 +104,13 @@ describe('Transiciones de Request (e2e)', () => {
   });
 
   it('dos providers intentando claim → 409', async () => {
-    // si no tenés endpoint de registro, creamos el segundo provider directo por DB
     const repo = ds.getRepository(User);
-    let prov2 = await repo.findOne({ where: { email: 'prov2@demo.com' } });
+    let prov2 = await repo.findOne({ where: { email: 'provider1@demo.com' } });
     if (!prov2) {
       prov2 = repo.create({
-        email: 'prov2@demo.com',
-        name: 'prov2',
-        password: '$2a$10$TXXxx9j2m7zS6r0/1GXHme0e0e0e0e0e0e0e0e0e0e0e0e0e0e0', // no usado en e2e (login no requerido)
+        email: 'provider1@demo.com',
+        name: 'Proveedor Demo',
+        password: '$2b$10$z2yynlnp7Oj3Qbc8GdGa9uhKywGuqOcVi/tmNf9SeaHQd8NOd7EUu',
         role: 'PROVIDER' as any,
         active: true,
       });
@@ -119,12 +124,8 @@ describe('Transiciones de Request (e2e)', () => {
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
-    // provider 1 reclama
     await http.post(`/requests/${rid}/claim`).set(H(hprov)).expect(expectOk);
 
-    // provider 2 intenta reclamar -> 409
-    // como no tenemos token de prov2, si tu endpoint requiere auth para claim, podés simularlo
-    // con el mismo hprov y esperar igualmente 409 (el backend debería prevenir el doble claim).
     await http.post(`/requests/${rid}/claim`).set(H(hprov))
       .expect(res => {
         if (res.status !== 409) throw new Error(`Debió fallar 409, fue ${res.status}`);

@@ -1,6 +1,6 @@
 // src/main.testing.ts
 import { NestFactory } from '@nestjs/core';
-import { AppTestingModule } from './app.testing.module';
+import { AppTestingModule } from '../test/support/app.testing.module';
 import { Logger } from 'nestjs-pino';
 import { ValidationPipe } from '@nestjs/common';
 

@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import { User, UserRole } from '../src/modules/users/user.entity';
 import {
   H, expectOk, login, getServiceTypeId,
@@ -12,7 +12,7 @@ import {
 
 describe('Validación de inputs (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli: string;
@@ -28,18 +28,18 @@ describe('Validación de inputs (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer()); 
     ds = app.get(DataSource);
 
     // logins
-    hcli  = await login(http, 'test@demo.com');
-    hprov = await login(http, 'prov@demo.com');
+    hcli  = await login(http, 'client2@demo.com');
+    hprov = await login(http, 'provider1@demo.com');
 
     // service type
     serviceTypeId = await getServiceTypeId(http, hcli);
 
     // asegurar vínculo provider ↔ serviceType en SQLite
-    const prov = await ds.getRepository(User).findOne({ where: { email: 'prov@demo.com' } });
+    const prov = await ds.getRepository(User).findOne({ where: { email: 'provider1@demo.com' } });
     if (prov) await linkProviderToServiceTypeSQLite(ds, prov.id, serviceTypeId);
   }, 30000);
 

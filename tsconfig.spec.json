@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node16",
+    "resolvePackageJsonExports": true,
+    "resolvePackageJsonImports": true,
+    "esModuleInterop": true,
+    "types": ["jest", "node"],
+    "skipLibCheck": true,
+    "strictPropertyInitialization": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

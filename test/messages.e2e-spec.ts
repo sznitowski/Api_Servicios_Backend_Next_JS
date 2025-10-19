@@ -1,10 +1,10 @@
 // test/messages.e2e-spec.ts
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import {
   H,                 // arma el header Authorization
   expectOk,          // expect 200/201
@@ -16,7 +16,7 @@ import { User } from '../src/modules/users/user.entity';
 
 describe('Messages (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli = '';     // bearer del cliente
@@ -36,7 +36,8 @@ describe('Messages (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer());
+
     ds = app.get(DataSource);
 
     hcli  = await login(http, 'test@demo.com');

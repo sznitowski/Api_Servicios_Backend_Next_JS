@@ -1,17 +1,16 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import * as request from 'supertest';
+import supertest from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import { Category } from '../src/modules/catalog/categories/category.entity';
 import { ServiceType } from '../src/modules/catalog/service-types/service-type.entity';
-import supertest from 'supertest';
 
 describe('Catalog (e2e)', () => {
     let app: INestApplication;
-    let http: supertest.SuperTest<supertest.Test>;
+    let http: ReturnType<typeof supertest>;
 
     let cats: Repository<Category>;
     let types: Repository<ServiceType>;

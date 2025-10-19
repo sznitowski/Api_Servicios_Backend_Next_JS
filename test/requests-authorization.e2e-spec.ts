@@ -14,10 +14,10 @@
 //
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test as NestTest } from '@nestjs/testing';
-import request, { SuperTest, Test as ST } from 'supertest';
+import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
-import { AppTestingModule } from '../src/app.testing.module';
+import { AppTestingModule } from './support/app.testing.module';
 import { User } from '../src/modules/users/user.entity';
 import {
   H,
@@ -37,7 +37,7 @@ const expectForbiddenish = (res: { status: number }) => {
 
 describe('AuthZ / Roles (e2e)', () => {
   let app: INestApplication;
-  let http: SuperTest<ST>;
+  let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli: string;      // token del cliente (Authorization header)
@@ -55,19 +55,19 @@ describe('AuthZ / Roles (e2e)', () => {
     await app.init();
 
     // 2) HTTP client y datasource para helpers que tocan DB
-    http = request(app.getHttpServer());
+    http = supertest(app.getHttpServer()); 
     ds = app.get(DataSource);
 
     // 3) Login de cliente y provider (helpers encapsulan POST /auth/login)
-    hcli = await login(http, 'test@demo.com');
-    hprov = await login(http, 'prov@demo.com');
+    hcli = await login(http, 'client2@demo.com');
+    hprov = await login(http, 'provider1@demo.com');
 
     // 4) Recuperar un service type y asegurar que el provider esté vinculado
     serviceTypeId = await getServiceTypeId(http, hcli);
 
     const prov = await ds
       .getRepository(User)
-      .findOne({ where: { email: 'prov@demo.com' } });
+      .findOne({ where: { email: 'provider1@demo.com' } });
 
     if (prov) {
       await linkProviderToServiceTypeSQLite(ds, prov.id, serviceTypeId);
