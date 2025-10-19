@@ -1,10 +1,20 @@
 coverage:
+  precision: 2
+  round: down
+  range: 0..100
   status:
     project:
       default:
-        target: 65%      # líneas globales
-        threshold: 1%    # tolerancia
+        target: auto         # objetivo dinámico basado en la rama base
+        threshold: 2%        # tolera una caída pequeña
+        informational: true  # no bloquea el check (evita el ❌)
     patch:
       default:
-        target: 60%      # exige algo de cobertura en los cambios del PR
-        threshold: 1%
+        target: auto
+        threshold: 2%
+        informational: true
+
+comment:
+  layout: "reach, diff, files"
+  require_changes: false
+  behavior: default

@@ -12,6 +12,7 @@ async function bootstrap() {
     whitelist: true, forbidNonWhitelisted: true, transform: true,
   }));
 
-  await app.listen(process.env.PORT ?? 3001);
+  // Nuevo puerto testing por defecto: 8001
+  await app.listen(process.env.PORT ?? 8001);
 }
 bootstrap();
