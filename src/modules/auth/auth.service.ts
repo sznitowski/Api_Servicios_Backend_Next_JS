@@ -5,6 +5,24 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
 
+// Helper: '15m' | '7d' | '900' → segundos
+function parseTtlToSeconds(input: unknown, fallback: number): number {
+  if (typeof input === 'number' && Number.isFinite(input)) return input;
+  if (typeof input !== 'string') return fallback;
+  const s = input.trim().toLowerCase();
+  const m = /^(\d+)\s*([smhdw])?$/.exec(s);
+  if (!m) return fallback;
+  const n = parseInt(m[1], 10);
+  const unit = m[2] ?? 's';
+  const mult =
+    unit === 's' ? 1 :
+    unit === 'm' ? 60 :
+    unit === 'h' ? 3600 :
+    unit === 'd' ? 86400 :
+    unit === 'w' ? 604800 : 1;
+  return n * mult;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -14,8 +32,8 @@ export class AuthService {
   ) {}
 
   private async signTokens(user: { id: number; email: string; role: string }) {
-    const accessTtl  = this.config.get<string>('JWT_EXPIRES_IN') ?? '15m';
-    const refreshTtl = this.config.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d';
+    const accessTtlSec  = parseTtlToSeconds(this.config.get('JWT_EXPIRES_IN') ?? '15m', 15 * 60);
+    const refreshTtlSec = parseTtlToSeconds(this.config.get('JWT_REFRESH_EXPIRES_IN') ?? '7d', 7 * 24 * 3600);
 
     const refreshSec =
       this.config.get<string>('JWT_REFRESH_SECRET')
@@ -24,10 +42,9 @@ export class AuthService {
 
     const payload = { sub: user.id, email: user.email, role: user.role };
 
-    const access_token  = await this.jwt.signAsync(payload, { expiresIn: accessTtl });
-    const refresh_token = await this.jwt.signAsync(payload, { expiresIn: refreshTtl, secret: refreshSec });
+    const access_token  = await this.jwt.signAsync(payload, { expiresIn: accessTtlSec });
+    const refresh_token = await this.jwt.signAsync(payload, { expiresIn: refreshTtlSec, secret: refreshSec });
 
-    // ⬇ opcional: incluimos alias camelCase, sin romper los tests (aceptan snake también)
     return {
       access_token,
       refresh_token,
@@ -58,7 +75,6 @@ export class AuthService {
     try {
       payload = await this.jwt.verifyAsync(refreshToken, { secret });
     } catch {
-      // ⬇ 401 para alinear con la doc del controller
       throw new UnauthorizedException('Invalid refresh token');
     }
 
