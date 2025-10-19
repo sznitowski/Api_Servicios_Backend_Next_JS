@@ -18,6 +18,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_ENV=test jest --config ./jest-e2e.config.cjs --runInBand --coverage",
+    "test:e2e:one": "cross-env NODE_ENV=test jest --config ./jest-e2e.config.cjs --runInBand --coverage=false",
     "coverage:open": "npx http-server coverage -p 7777",
     "typeorm": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/config/db/data-source.ts",
     "db:mig:gen": "npm run typeorm -- migration:generate src/db/migrations/Init",

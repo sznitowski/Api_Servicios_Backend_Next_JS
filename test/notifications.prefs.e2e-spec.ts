@@ -43,7 +43,7 @@ describe('Notifications / preferencias (e2e)', () => {
     // 1) Cliente silencia OFFERED
     await http.put('/notifications/prefs')
       .set(H(hcli))
-      .send({ disabledTypes: ['IN_PROGRESS','DONE'] })
+      .send({ disabledTypes: ['OFFERED'] })
       .expect(expectOk);
 
     // 2) Cliente crea request
@@ -53,7 +53,7 @@ describe('Notifications / preferencias (e2e)', () => {
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
-    // 3) Proveedor hace claim (debería NO notificar al cliente por prefs)
+    // 3) Proveedor hace claim (NO debería notificar OFFERED por prefs)
     await http.post(`/requests/${rid}/claim`)
       .set(H(hprov))
       .send({ priceOffered: 50 })
@@ -83,6 +83,7 @@ describe('Notifications / preferencias (e2e)', () => {
       .send({ priceOffered: 60 })
       .expect(expectOk);
 
+    // 👇 FIX: comillas simples correctas (no backtick)
     const list2 = await http.get('/notifications/me?unseen=true')
       .set(H(hcli)).expect(expectOk);
     const items2 = list2.body.items ?? list2.body;

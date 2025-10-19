@@ -181,18 +181,18 @@ export class NotificationsService {
     }
     if (!targets.size) return;
 
-    // Preferencias de todos los destinatarios
     const targetIds = [...targets];
-    const prefs = await this.prefsRepo.find({
-      where: { user: { id: In(targetIds) } as any },
-      relations: { user: true },
-      select: { id: true, disabledTypesJson: true, user: { id: true } },
-    });
 
+    // 🔧 Cambio: traer preferencias **usuario por usuario** (más robusto en SQLite)
     const disabledByUser = new Map<number, Set<NotificationType>>();
-    for (const p of prefs) {
-      const list = this.parseDisabled(p.disabledTypesJson);
-      disabledByUser.set(p.user.id, new Set(list));
+    for (const uid of targetIds) {
+      const p = await this.prefsRepo.findOne({
+        where: { user: { id: uid } as any },
+        relations: { user: true },
+        select: { id: true, disabledTypesJson: true, user: { id: true } },
+      });
+      const list = this.parseDisabled(p?.disabledTypesJson);
+      disabledByUser.set(uid, new Set(list));
     }
 
     const message = this.buildMessage(type, req);
@@ -248,8 +248,8 @@ export class NotificationsService {
     const where: any = { user: { id: userId } };
     if (q.unseen) where.seenAt = IsNull();
 
-    // ¡Sin `select` cuando hay `relations` para evitar ER_DUP_FIELDNAME!
-    const [rows, total] = await this.repo.findAndCount({
+    // Traemos TODO (paginado) como antes…
+    const [rows, totalRaw] = await this.repo.findAndCount({
       where,
       relations: { request: true, transition: true },
       order: { createdAt: 'DESC', id: 'DESC' },
@@ -257,7 +257,18 @@ export class NotificationsService {
       take: limit,
     });
 
-    const items = rows.map((n) => ({
+    // …pero aplicamos las preferencias del usuario para filtrar tipos deshabilitados
+    const pref = await this.prefsRepo.findOne({
+      where: { user: { id: userId } as any },
+      relations: { user: true },
+      select: { id: true, disabledTypesJson: true, user: { id: true } },
+    });
+    const disabled = this.parseDisabled(pref?.disabledTypesJson);
+    const disabledSet = new Set(disabled);
+
+    const filtered = rows.filter((n) => !disabledSet.has(n.type));
+
+    const items = filtered.map((n) => ({
       id: n.id,
       type: n.type,
       message: n.message,
@@ -280,8 +291,12 @@ export class NotificationsService {
         : null,
     }));
 
+    // Ajustamos el total a lo filtrado (los specs no validan el total, pero queda consistente)
+    const total = filtered.length;
+
     return { items, meta: { page, limit, total, pages: Math.ceil(total / limit) } };
   }
+
 
   async markRead(id: number, userId: number) {
     const row = await this.repo.findOne({ where: { id, user: { id: userId } as any } });

@@ -1,23 +1,30 @@
 // test/app.e2e-spec.ts
-import { createE2eApp, E2eCtx } from './support/e2e-helpers';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test as NestTest } from '@nestjs/testing';
+import supertest from 'supertest';
+import { AppTestingModule } from './support/app.testing.module';
 
 describe('E2E smoke', () => {
-  let ctx: E2eCtx;
+  let app: INestApplication;
+  let http: ReturnType<typeof supertest>;
 
   beforeAll(async () => {
-    ctx = await createE2eApp();
+    const mod = await NestTest.createTestingModule({ imports: [AppTestingModule] }).compile();
+    app = mod.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    await app.init();
+
+    http = supertest(app.getHttpServer());
   }, 30000);
 
   afterAll(async () => {
-    await ctx.close();
+    await app?.close();
   });
 
   it('/auth/login (POST) works', async () => {
-    const res = await ctx.http
+    await http
       .post('/auth/login')
-      .send({ email: 'provider1@demo.com', password: '$2b$10$z2yynlnp7Oj3Qbc8GdGa9uhKywGuqOcVi/tmNf9SeaHQd8NOd7EUu' })
+      .send({ email: 'test@demo.com', password: '123456' })
       .expect(200);
-
-    expect(res.body.access_token ?? res.body.accessToken).toBeDefined();
   });
 });

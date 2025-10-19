@@ -16,12 +16,12 @@ import {
 
 describe('Transiciones de Request (e2e)', () => {
   let app: INestApplication;
-  // 👇 deja que TS infiera, o si querés tipar:  let http: ReturnType<typeof supertest>;
   let http: ReturnType<typeof supertest>;
   let ds: DataSource;
 
   let hcli: string;
   let hprov: string;
+  let hprov2: string;
   let serviceTypeId: number;
 
   beforeAll(async () => {
@@ -33,15 +33,34 @@ describe('Transiciones de Request (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
 
-    http = supertest(app.getHttpServer());  
+    http = supertest(app.getHttpServer());
     ds = app.get(DataSource);
 
     hcli = await login(http, 'client2@demo.com');
     hprov = await login(http, 'provider1@demo.com');
     serviceTypeId = await getServiceTypeId(http, hcli);
 
-    const prov = await ds.getRepository(User).findOne({ where: { email: 'provider1@demo.com' } });
-    if (prov) await linkProviderToServiceTypeSQLite(ds, prov.id, serviceTypeId);
+    // Aseguramos provider1 vinculado al serviceType
+    const repo = ds.getRepository(User);
+    const prov1 = await repo.findOne({ where: { email: 'provider1@demo.com' } });
+    if (prov1) await linkProviderToServiceTypeSQLite(ds, prov1.id, serviceTypeId);
+
+    // Creamos/Vinculamos provider2
+    let prov2 = await repo.findOne({ where: { email: 'provider2@demo.com' } });
+    if (!prov2) {
+      prov2 = repo.create({
+        email: 'provider2@demo.com',
+        name: 'Proveedor 2',
+        password: '$2b$10$z2yynlnp7Oj3Qbc8GdGa9uhKywGuqOcVi/tmNf9SeaHQd8NOd7EUu', // "123456" bcrypt
+        role: 'PROVIDER' as any,
+        active: true,
+      });
+      await repo.save(prov2);
+    }
+    await linkProviderToServiceTypeSQLite(ds, prov2.id, serviceTypeId);
+
+    // Login del segundo provider
+    hprov2 = await login(http, 'provider2@demo.com');
   }, 30000);
 
   afterAll(async () => { await app?.close(); });
@@ -104,29 +123,17 @@ describe('Transiciones de Request (e2e)', () => {
   });
 
   it('dos providers intentando claim → 409', async () => {
-    const repo = ds.getRepository(User);
-    let prov2 = await repo.findOne({ where: { email: 'provider1@demo.com' } });
-    if (!prov2) {
-      prov2 = repo.create({
-        email: 'provider1@demo.com',
-        name: 'Proveedor Demo',
-        password: '$2b$10$z2yynlnp7Oj3Qbc8GdGa9uhKywGuqOcVi/tmNf9SeaHQd8NOd7EUu',
-        role: 'PROVIDER' as any,
-        active: true,
-      });
-      await repo.save(prov2);
-    }
-    await linkProviderToServiceTypeSQLite(ds, prov2.id, serviceTypeId);
-
     const create = await http.post('/requests')
       .set(H(hcli))
       .send({ serviceTypeId, title: 'Trabajo X', lat: 0, lng: 0, priceOffered: 1 })
       .expect(expectOk);
     const rid = create.body?.id ?? create.body?.data?.id;
 
+    // 1er claim: provider1
     await http.post(`/requests/${rid}/claim`).set(H(hprov)).expect(expectOk);
 
-    await http.post(`/requests/${rid}/claim`).set(H(hprov))
+    // 2º claim: provider2 → debe fallar 409
+    await http.post(`/requests/${rid}/claim`).set(H(hprov2))
       .expect(res => {
         if (res.status !== 409) throw new Error(`Debió fallar 409, fue ${res.status}`);
       });

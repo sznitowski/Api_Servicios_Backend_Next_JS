@@ -1,14 +1,15 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "CommonJS",
     "moduleResolution": "node16",
-    "resolvePackageJsonExports": true,
-    "resolvePackageJsonImports": true,
-    "esModuleInterop": true,
+    "target": "ES2022",
     "types": ["jest", "node"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
-    "strictPropertyInitialization": false
+    "sourceMap": true,
+    "outDir": "./dist-e2e"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["test/**/*.ts", "src/**/*.d.ts"]
 }

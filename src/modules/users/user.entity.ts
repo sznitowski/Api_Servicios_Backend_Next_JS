@@ -9,16 +9,16 @@ export enum UserRole {
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column({ unique: true })
-  email: string;
+  email!: string;
 
   @Column()
-  name: string;
+  name!: string;
 
   @Column({ select: false })
-  password: string;
+  password!: string;
 
   @Column({
     name: 'refresh_token_hash',
@@ -27,18 +27,17 @@ export class User {
     nullable: true,
     select: false,
   })
-  refreshTokenHash: string | null;
-
+  refreshTokenHash!: string | null;
 
   @Column({ type: 'simple-enum', enum: UserRole, default: UserRole.CLIENT })
-  role: UserRole;
+  role!: UserRole;
 
   @Column({ default: true })
-  active: boolean;
+  active!: boolean;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

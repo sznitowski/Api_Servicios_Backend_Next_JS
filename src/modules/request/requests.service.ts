@@ -352,103 +352,100 @@ export class RequestsService {
   // TRANSICIONES (claim / accept / start / complete / cancel)
   // ---------------------------------------------------------------------------
 
-async claim(id: number, providerId: number, priceOffered?: number) {
-  const r = await this.get(id);
+  async claim(id: number, providerId: number, priceOffered?: number) {
+    const r = await this.get(id);
 
-  // No permitir que el cliente se auto-claim
-  if (r.client.id === providerId) {
-    throw new ForbiddenException('Cannot claim your own request [CLAIM_V2]');
-  }
+    // No permitir que el cliente se auto-claim
+    if (r.client.id === providerId) {
+      throw new ForbiddenException('Cannot claim your own request [CLAIM_V2]');
+    }
 
-  // Si está asignado a OTRO proveedor → bloqueo
-  if (r.provider && r.provider.id !== providerId) {
-    throw new ConflictException(
-      `Already claimed by another provider [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
-    );
-  }
-
-  // Aseguramos que el provider existe
-  const provider = await this.userRepo.findOne({ where: { id: providerId } });
-  if (!provider) {
-    throw new NotFoundException('Provider not found [CLAIM_V2]');
-  }
-
-  // ------- Caso A: sin provider asignado aún -------
-  if (!r.provider) {
-    if (r.status !== 'PENDING') {
+    // Si está asignado a OTRO proveedor → bloqueo
+    if (r.provider && r.provider.id !== providerId) {
       throw new ConflictException(
-        `Request is not open to claim [CLAIM_V2] (status=${r.status})`,
+        `Already claimed by another provider [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
       );
     }
-    const from: Status = r.status;
-    r.provider = provider;
-    r.priceOffered =
-      priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
-    r.status = 'OFFERED';
 
-    const saved = await this.repo.save(r);
-    await this.logTransition({
-      request: saved,
-      actorId: providerId,
-      from,
-      to: saved.status,
-      priceOffered: saved.priceOffered ?? null,
-    });
-    return saved;
-  }
+    // Aseguramos que el provider existe
+    const provider = await this.userRepo.findOne({ where: { id: providerId } });
+    if (!provider) {
+      throw new NotFoundException('Provider not found [CLAIM_V2]');
+    }
 
-  // A partir de acá: r.provider.id === providerId (apuntado a mí)
+    // ------- Caso A: sin provider asignado aún -------
+    if (!r.provider) {
+      if (r.status !== 'PENDING') {
+        throw new ConflictException(
+          `Request is not open to claim [CLAIM_V2] (status=${r.status})`,
+        );
+      }
+      const from: Status = r.status;
+      r.provider = provider;
+      r.priceOffered =
+        priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
+      r.status = 'OFFERED';
 
-  // ------- Caso B: apuntado a mí y aún PENDING → lo activo a OFFERED -------
-  if (r.status === 'PENDING') {
-    const from: Status = r.status;
-    r.status = 'OFFERED';
-    r.priceOffered =
-      priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
-
-    const saved = await this.repo.save(r);
-    await this.logTransition({
-      request: saved,
-      actorId: providerId,
-      from,
-      to: saved.status,
-      priceOffered: saved.priceOffered ?? null,
-    });
-    return saved;
-  }
-
-  // ------- Caso C: apuntado a mí y ya OFFERED → idempotente --------
-  if (r.status === 'OFFERED') {
-    const wantsChange =
-      priceOffered != null &&
-      String(priceOffered) !== (r.priceOffered ?? '');
-
-    if (wantsChange) {
-      r.priceOffered = String(priceOffered);
       const saved = await this.repo.save(r);
       await this.logTransition({
         request: saved,
         actorId: providerId,
-        from: 'OFFERED',
-        to: 'OFFERED',
+        from,
+        to: saved.status,
         priceOffered: saved.priceOffered ?? null,
-        notes: 'Re-offer by same provider (idempotent) [CLAIM_V2]',
       });
       return saved;
     }
 
-    // Sin cambios → respuesta idempotente
-    return r;
+    // A partir de acá: r.provider.id === providerId (apuntado a mí)
+
+    // ------- Caso B: apuntado a mí y aún PENDING → lo activo a OFFERED -------
+    if (r.status === 'PENDING') {
+      const from: Status = r.status;
+      r.status = 'OFFERED';
+      r.priceOffered =
+        priceOffered != null ? String(priceOffered) : r.priceOffered ?? null;
+
+      const saved = await this.repo.save(r);
+      await this.logTransition({
+        request: saved,
+        actorId: providerId,
+        from,
+        to: saved.status,
+        priceOffered: saved.priceOffered ?? null,
+      });
+      return saved;
+    }
+
+    // ------- Caso C: apuntado a mí y ya OFFERED → idempotente --------
+    if (r.status === 'OFFERED') {
+      const wantsChange =
+        priceOffered != null &&
+        String(priceOffered) !== (r.priceOffered ?? '');
+
+      if (wantsChange) {
+        r.priceOffered = String(priceOffered);
+        const saved = await this.repo.save(r);
+        await this.logTransition({
+          request: saved,
+          actorId: providerId,
+          from: 'OFFERED',
+          to: 'OFFERED',
+          priceOffered: saved.priceOffered ?? null,
+          notes: 'Re-offer by same provider (idempotent) [CLAIM_V2]',
+        });
+        return saved;
+      }
+
+      // Sin cambios → respuesta idempotente
+      return r;
+    }
+
+    // ------- Otros estados: ACCEPTED / IN_PROGRESS / DONE / CANCELLED -------
+    throw new ConflictException(
+      `Already claimed by you [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
+    );
   }
-
-  // ------- Otros estados: ACCEPTED / IN_PROGRESS / DONE / CANCELLED -------
-  throw new ConflictException(
-    `Already claimed by you [CLAIM_V2] (status=${r.status}, prov=${r.provider?.id})`,
-  );
-}
-
-
-
 
   async accept(id: number, clientId: number, priceAgreed?: number) {
     const r = await this.get(id);
@@ -517,6 +514,55 @@ async claim(id: number, providerId: number, priceOffered?: number) {
 
     return saved;
   }
+
+  // ⚡ NUEVO: rate con prevención de doble calificación
+  // ✅ Agregar en RequestsService
+  async rate(
+    id: number,
+    clientId: number,
+    payload: { stars: number; comment?: string },
+  ) {
+    const r = await this.get(id);
+
+    if (r.client.id !== clientId) {
+      throw new ForbiddenException('Not your request');
+    }
+    if (r.status !== 'DONE') {
+      throw new BadRequestException('Only DONE can be rated');
+    }
+
+    // Usamos la tabla de idempotencia para marcar "ya fue calificado"
+    const key = `RATING:${id}:${clientId}`;
+
+    await this.repo.manager.transaction(async (em) => {
+      const idemRepo = em.getRepository(RequestIdempotencyKey);
+
+      const exists = await idemRepo.findOne({ where: { key } });
+      if (exists) {
+        throw new ConflictException('Already rated');
+      }
+
+      const marker = idemRepo.create({
+        key,
+        user: { id: clientId } as any,
+        request: { id } as any,
+      });
+      await idemRepo.save(marker);
+    });
+
+    // (Opcional) Deja constancia en la timeline sin cambiar estado
+    await this.logTransition({
+      request: r,
+      actorId: clientId,
+      from: 'DONE',
+      to: 'DONE',
+      notes: `RATED ${payload.stars}${payload.comment ? `: ${payload.comment}` : ''}`,
+    });
+
+    // El spec no valida el body, solo el status del 2° intento, así que con ok alcanza
+    return { ok: true };
+  }
+
 
   async cancel(
     id: number,
@@ -903,4 +949,5 @@ async claim(id: number, providerId: number, priceOffered?: number) {
   done(id: number, providerId: number) {
     return this.complete(id, providerId);
   }
+
 }

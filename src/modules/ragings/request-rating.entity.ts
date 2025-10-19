@@ -1,25 +1,26 @@
-// src/modules/request/request-rating.entity.ts
 import {
-  Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn, Unique,
+  Entity, PrimaryGeneratedColumn, OneToOne, ManyToOne, JoinColumn,
   Column, CreateDateColumn, UpdateDateColumn
 } from 'typeorm';
 import { ServiceRequest } from '../request/request.entity';
 import { User } from '../users/user.entity';
 
 @Entity('request_ratings')
-@Unique('UQ_rr_request_rater', ['request', 'rater']) // 1 rating por request+rater
 export class RequestRating {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => ServiceRequest, { onDelete: 'CASCADE', nullable: false })
+  // 1 rating por request
+  @OneToOne(() => ServiceRequest, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'request_id' })
   request: ServiceRequest;
 
+  // quién califica (cliente)
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'rater_id' })
   rater: User | null;
 
+  // quién recibe la calificación (proveedor)
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'ratee_id' })
   ratee: User | null;
