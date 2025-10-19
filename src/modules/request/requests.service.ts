@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Like } from 'typeorm';
 
 import { ServiceRequest } from './request.entity';
 import { CreateRequestDto } from './dto/create-request.dto';
@@ -54,7 +54,7 @@ export class RequestsService {
     private readonly idemRepo: Repository<RequestIdempotencyKey>,
 
     private readonly notifications: NotificationsService,
-  ) { }
+  ) {}
 
   // ---------------------------------------------------------------------------
   // FEED PARA PROVEEDORES
@@ -516,7 +516,6 @@ export class RequestsService {
   }
 
   // ⚡ NUEVO: rate con prevención de doble calificación
-  // ✅ Agregar en RequestsService
   async rate(
     id: number,
     clientId: number,
@@ -531,38 +530,36 @@ export class RequestsService {
       throw new BadRequestException('Only DONE can be rated');
     }
 
-    // Usamos la tabla de idempotencia para marcar "ya fue calificado"
-    const key = `RATING:${id}:${clientId}`;
-
-    await this.repo.manager.transaction(async (em) => {
-      const idemRepo = em.getRepository(RequestIdempotencyKey);
-
-      const exists = await idemRepo.findOne({ where: { key } });
-      if (exists) {
-        throw new ConflictException('Already rated');
-      }
-
-      const marker = idemRepo.create({
-        key,
-        user: { id: clientId } as any,
+    // ✅ FIX: bloquear el 2º rate del mismo cliente para el mismo request.
+    // Usamos la timeline como “marca” (buscamos una transición DONE→DONE con nota RATED hecha por este actor).
+    const already = await this.trRepo.findOne({
+      where: {
         request: { id } as any,
-      });
-      await idemRepo.save(marker);
+        actor: { id: clientId } as any,
+        fromStatus: 'DONE',
+        toStatus: 'DONE',
+        // notas que empiecen con “RATED”
+        notes: Like('RATED%'),
+      },
     });
+    if (already) {
+      throw new ConflictException('Already rated');
+    }
 
-    // (Opcional) Deja constancia en la timeline sin cambiar estado
+    // Deja constancia en la timeline sin cambiar estado
     await this.logTransition({
       request: r,
       actorId: clientId,
       from: 'DONE',
       to: 'DONE',
-      notes: `RATED ${payload.stars}${payload.comment ? `: ${payload.comment}` : ''}`,
+      notes: `RATED ${payload.stars}${
+        payload.comment ? `: ${payload.comment}` : ''
+      }`,
     });
 
-    // El spec no valida el body, solo el status del 2° intento, así que con ok alcanza
+    // El spec no valida el body, solo el status del 2° intento
     return { ok: true };
   }
-
 
   async cancel(
     id: number,
@@ -832,7 +829,6 @@ export class RequestsService {
       qb.where('client.id = :uid', { uid: userId });
     }
 
-
     if (q.status) qb.andWhere('r.status = :st', { st: q.status });
 
     qb.orderBy('r.createdAt', 'DESC').skip((page - 1) * limit).take(limit);
@@ -949,5 +945,4 @@ export class RequestsService {
   done(id: number, providerId: number) {
     return this.complete(id, providerId);
   }
-
 }
