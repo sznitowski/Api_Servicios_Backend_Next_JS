@@ -8,11 +8,14 @@ async function bootstrap() {
   const app = await NestFactory.create(AppTestingModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true, forbidNonWhitelisted: true, transform: true,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
-  // Nuevo puerto testing por defecto: 8001
-  await app.listen(process.env.PORT ?? 8001);
+  await app.listen(process.env.PORT ?? 5001);
 }
 bootstrap();

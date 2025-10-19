@@ -30,5 +30,5 @@ RUN npm ci --omit=dev
 COPY --chown=app:app --from=builder /app/dist ./dist
 
 USER app
-EXPOSE 3000
+EXPOSE 5000
 CMD ["node", "dist/main.js"]
