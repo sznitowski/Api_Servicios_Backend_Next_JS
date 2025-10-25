@@ -12,6 +12,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { RequestsModule } from './modules/request/requests.module';
 import { ProvidersModule } from './modules/providers/providers.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 // 👇 importación: config centralizada (synchronize:false en prod)
 import { typeOrmConfig } from './config/typeorm.config';
@@ -61,6 +62,7 @@ import { typeOrmConfig } from './config/typeorm.config';
     ProvidersModule,
     NotificationsModule,
     AiModule,
+    PaymentsModule
 
   ],
 })
